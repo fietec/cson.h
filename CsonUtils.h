@@ -33,7 +33,7 @@ uint64_t file_size(char *file_path);
 #define ANSI_RGB(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
 #define ANSI_END "\e[0m"
 
-#define CSON_UTILS_IMPLEMENTATION // DEBUG
+// #define CSON_UTILS_IMPLEMENTATION // DEBUG
 #ifdef CSON_UTILS_IMPLEMENTATION
 bool str_is_int(char *s)
 {

@@ -6,8 +6,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include <stdbool.h>
-
-#include "CsonUtils.h"
+#include <stdint.h>
+#include <ctype.h>
+#include <sys/stat.h>
 
 #define CSON_DEF_ARRAY_CAPACITY 16
 #define CSON_DEF_ARRAY_MF        2
@@ -15,7 +16,39 @@
 #define CSON_DEF_INDENT          4
 
 #define cson_debug(msg, ...) (printf("%s%s:%d: " msg ANSI_END "\n", ANSI_RGB(0, 255, 0),__FILE__, __LINE__, ## __VA_ARGS__))
+#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg ANSI_END "\n", ANSI_RGB(255, 128, 0), __FILE__, __LINE__, ## __VA_ARGS__))
 #define cson_eprintln(msg, ...) (fprintf(stderr, "%s%s:%d: [ERROR] " msg ANSI_END "\n", ANSI_RGB(255, 0, 0), __FILE__, __LINE__, ## __VA_ARGS__))
+
+#define CSON_ASSERT(statement, msg, ...) do{if (!(statement)) {cson_eprintln(msg, ##__VA_ARGS__); exit(1);}} while (0);
+#ifdef CSON_ALLOW_WARNINGS
+#define CSON_ASSERT_WARNING(statement, msg, ...) do{if (!(statement)) {cson_warning(msg, ##__VA_ARGS__);}}while(0);
+#else
+#define CSON_ASSERT_WARNING(statement, msg, ...) do{if (!(statement)) {cson_eprintln(msg, ##__VA_ARGS__); exit(1);}}while(0);
+#endif
+
+#define BYTE_DELIMETER 1024.0
+
+const char* BYTE_SUFFIXES[] = {"B", "KB", "MB", "GB", "TB"};
+
+bool str_is_int(char* s);
+bool str_is_float(char* s);
+
+char* str_to_higher(char* s);
+char* str_to_lower(char* s);
+
+size_t str_size(char* s);
+
+char* str_dup(char* s);
+
+int str_char_index(char* s, char c);
+void str_char_remove(char* s, char c);
+void str_char_replace(char*s, char o, char n);
+char* str_human_bytes(char* buffer, size_t buff_size, uint64_t bytes);
+
+uint64_t file_size(char *file_path);
+
+#define ANSI_RGB(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
+#define ANSI_END "\e[0m"
 
 typedef enum{
     Cson_Integer,
@@ -40,12 +73,23 @@ const char* const CsonTypeStrs[] = {
 typedef enum{
     CsonError_Success,
     // parsing
+    CsonError_UnexpectedToken,
     // run-time
     CsonError_ItemNotFound,
     CsonError_FileNotFound,
     CsonError_Alloc,
     CsonError_Param
 } CsonError;
+
+const char* const CsonErrorStrings[] = {
+    [CsonError_Success] = "Success",
+    [CsonError_ItemNotFound] = "ItemNotFound",
+    [CsonError_FileNotFound] = "FileNotFound",
+    [CsonError_Alloc] = "Allocation",
+    [CsonError_Param] = "ParametersInvalid",
+    // Parsing Errors
+    [CsonError_UnexpectedToken] = "UnexpectedToken",
+};
 
 typedef enum{
     CsonArg_Index,
@@ -402,23 +446,20 @@ CsonMap* CsonMap_dup(CsonMap *map);
 size_t CsonMap_size(CsonMap *map);
 
 
-#define CSON_IMPLEMENTATION // DEBUG
 #ifdef CSON_IMPLEMENTATION
-#define STRLIB_IMPLEMENTATION
 
 CsonArray* CsonArray_create(void)
 {
     CsonArray* array = (CsonArray*) malloc(sizeof(*array));
-    if (array){
-        Cson** values = (Cson**) calloc(CSON_DEF_ARRAY_CAPACITY, sizeof(*values));
-        if (!values){
-            free(array);
-            return NULL;
-        }
-        array->values = values;
-        array->capacity = CSON_DEF_ARRAY_CAPACITY;
-        array->size = 0;
+    CSON_ASSERT(array != NULL, "Out of memory!");
+    Cson** values = (Cson**) calloc(CSON_DEF_ARRAY_CAPACITY, sizeof(*values));
+    if (!values){
+        free(array);
+        exit(1);
     }
+    array->values = values;
+    array->capacity = CSON_DEF_ARRAY_CAPACITY;
+    array->size = 0;
     return array;
 }
 
@@ -490,22 +531,20 @@ CsonArray* CsonArray_dup(CsonArray *array)
 {
     if (!array) return NULL;
     CsonArray *new_array = (CsonArray*) malloc(sizeof(*new_array));
-    if (new_array){
-        Cson **new_values = (Cson**) calloc(array->capacity, sizeof(*new_values));
-        if (!new_values){
-            free(new_array);
-            return NULL;
-        }
-        new_array->values = new_values;
-        new_array->capacity = array->capacity;
-        new_array->size = array->size;
-        for (size_t i=0; i<array->size; ++i){
-            Cson *dup_value = Cson_dup(array->values[i]);  
-            if (!dup_value){
-                // TODO: handle error                
-            }      
-            new_array->values[i] = dup_value;
-        }
+    Cson **new_values = (Cson**) calloc(array->capacity, sizeof(*new_values));
+    if (!new_values){
+        free(new_array);
+        exit(1);
+    }
+    new_array->values = new_values;
+    new_array->capacity = array->capacity;
+    new_array->size = array->size;
+    for (size_t i=0; i<array->size; ++i){
+        Cson *dup_value = Cson_dup(array->values[i]);  
+        if (!dup_value){
+            // TODO: handle error                
+        }      
+        new_array->values[i] = dup_value;
     }
     return new_array;
 }
@@ -524,16 +563,15 @@ unsigned long CsonMap_hash(char *key)
 CsonMapValue* CsonMapValue_create(char *key, Cson *value)
 {
     CsonMapValue *map_value = (CsonMapValue*) malloc(sizeof(*value));
-    if (map_value){
-        char *new_key = str_dup(key);
-        if (!new_key){
-            free(map_value);
-            return NULL;
-        }
-        map_value->key = new_key;
-        map_value->value = value;
-        map_value->next = NULL;
+    CSON_ASSERT(map_value != NULL, "Out of memory!");
+    char *new_key = str_dup(key);
+    if (!new_key){
+        free(map_value);
+        exit(1);
     }
+    map_value->key = new_key;
+    map_value->value = value;
+    map_value->next = NULL;
     return map_value;
 }
 
@@ -553,35 +591,33 @@ CsonMapValue* CsonMapValue_dup(CsonMapValue *value)
 {
     if (!value) return NULL;
     CsonMapValue *new_value = (CsonMapValue*) malloc(sizeof(*new_value));
-    if (new_value){
-        char *new_key = str_dup(value->key);
-        if (!new_key){
-            free(new_value);
-            return NULL;
-        }
-        new_value->key = new_key;
-        new_value->value = Cson_dup(value->value);
-        new_value->next = CsonMapValue_dup(value->next);
+    CSON_ASSERT(new_value != NULL, "Out of memory!");
+    char *new_key = str_dup(value->key);
+    if (!new_key){
+        free(new_value);
+        exit(1);
     }
+    new_value->key = new_key;
+    new_value->value = Cson_dup(value->value);
+    new_value->next = CsonMapValue_dup(value->next);
     return new_value;
 }
 
 CsonMap* CsonMap_create(void)
 {
     CsonMap *map = (CsonMap*) malloc(sizeof(*map));
-    if (map){
-        CsonMapValue **values = (CsonMapValue**) calloc(CSON_MAP_CAPACITY, sizeof(CsonMapValue*));
-        if (!values){
-            free(map);
-            return NULL;
-        }
-        for (size_t i=0; i<CSON_MAP_CAPACITY; ++i){
-            values[i] = NULL;
-        }
-        map->capacity = CSON_MAP_CAPACITY;
-        map->size = 0;
-        map->values = values;
+    CSON_ASSERT(map != NULL, "Out of memory!");
+    CsonMapValue **values = (CsonMapValue**) calloc(CSON_MAP_CAPACITY, sizeof(CsonMapValue*));
+    if (!values){
+        free(map);
+        exit(1);
     }
+    for (size_t i=0; i<CSON_MAP_CAPACITY; ++i){
+        values[i] = NULL;
+    }
+    map->capacity = CSON_MAP_CAPACITY;
+    map->size = 0;
+    map->values = values;
     return map;
 }
 
@@ -686,19 +722,18 @@ CsonMap* CsonMap_dup(CsonMap *map)
 {
     if (!map) return NULL;
     CsonMap *new_map = (CsonMap*) malloc(sizeof(*new_map));
-    if (new_map){
-        CsonMapValue **new_values = (CsonMapValue**) calloc(map->capacity, sizeof(*new_values));
-        if (!new_values){
-            free(new_map);
-            return NULL;
-        }
-        new_map->values = new_values;
-        new_map->capacity = map->capacity;
-        new_map->size = map->size;
-        for (size_t i=0; i<map->capacity; ++i){
-            CsonMapValue *new_value = CsonMapValue_dup(map->values[i]);
-            new_map->values[i] = new_value;
-        }
+    CSON_ASSERT(new_map != NULL, "Out of memory!");
+    CsonMapValue **new_values = (CsonMapValue**) calloc(map->capacity, sizeof(*new_values));
+    if (!new_values){
+        free(new_map);
+        exit(1);
+    }
+    new_map->values = new_values;
+    new_map->capacity = map->capacity;
+    new_map->size = map->size;
+    for (size_t i=0; i<map->capacity; ++i){
+        CsonMapValue *new_value = CsonMapValue_dup(map->values[i]);
+        new_map->values[i] = new_value;
     }
     return new_map;
 }
@@ -706,10 +741,9 @@ CsonMap* CsonMap_dup(CsonMap *map)
 Cson* Cson_create()
 {
     Cson *json = (Cson*) malloc(sizeof(*json));
-    if (json){
-        json->type = Cson_Null;
-        json->value.null = NULL;
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Null;
+    json->value.null = NULL;
     return json;
 }
 
@@ -734,69 +768,62 @@ void Cson_free(Cson *json)
 Cson* Cson_from_int(int value) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Integer;
-        json->value.integer = value;
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Integer;
+    json->value.integer = value;
     return json;
 }
 
 Cson* Cson_from_double(double value) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Double;
-        json->value.floating = value;
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Double;
+    json->value.floating = value;
     return json;
 }
 
 Cson* Cson_from_boolean(bool value) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Boolean;
-        json->value.boolean = value;  
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Boolean;
+    json->value.boolean = value;  
     return json;
 }
 
 Cson* Cson_from_string(char* value) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_String;
-        json->value.string = str_dup(value); 
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_String;
+    json->value.string = str_dup(value); 
     return json;
 }
 
 Cson* Cson_from_null() 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Null;
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Null;
     return json;
 }
 
 Cson* Cson_from_array(CsonArray* array) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Array;
-        json->value.array = array;  
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Array;
+    json->value.array = array;  
     return json;
 }
 
 Cson* Cson_from_map(CsonMap* map) 
 {
     Cson* json = (Cson*) malloc(sizeof(*json));
-    if (json) {
-        json->type = Cson_Map;
-        json->value.map = map;
-    }
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    json->type = Cson_Map;
+    json->value.map = map;
     return json;
 }
 
@@ -938,38 +965,37 @@ Cson* Cson_dup(Cson *json)
 {
     if (!json) return NULL;
     Cson *new_json = (Cson*) malloc(sizeof(*json));
-    if (new_json){
-        switch (json->type){
-            case Cson_Array: {
-                CsonArray *new_array = CsonArray_dup(json->value.array);
-                if (!new_array){
-                    free(new_json);
-                    return NULL;
-                }
-                new_json->value.array = new_array;
-            }break;
-            case Cson_Map:{
-                CsonMap *new_map = CsonMap_dup(json->value.map);
-                if (!new_map){
-                    free(new_json);
-                    return NULL;
-                }   
-                new_json->value.map = new_map;
-            }break;
-            case Cson_String:{
-                char *new_string = str_dup(json->value.string);
-                if (!new_string){
-                    free(new_json);
-                    return NULL;
-                }
-                new_json->value.string = new_string;
-            }break;
-            default:{
-                new_json->value = json->value;
+    CSON_ASSERT(json != NULL, "Out of memory!");
+    switch (json->type){
+        case Cson_Array: {
+            CsonArray *new_array = CsonArray_dup(json->value.array);
+            if (!new_array){
+                free(new_json);
+                return NULL;
             }
+            new_json->value.array = new_array;
+        }break;
+        case Cson_Map:{
+            CsonMap *new_map = CsonMap_dup(json->value.map);
+            if (!new_map){
+                free(new_json);
+                return NULL;
+            }   
+            new_json->value.map = new_map;
+        }break;
+        case Cson_String:{
+            char *new_string = str_dup(json->value.string);
+            if (!new_string){
+                free(new_json);
+                return NULL;
+            }
+            new_json->value.string = new_string;
+        }break;
+        default:{
+            new_json->value = json->value;
         }
-        new_json->type = json->type;
     }
+    new_json->type = json->type;
     return new_json;
 }
 
@@ -990,6 +1016,125 @@ size_t Cson_size(Cson *json)
     }
     return size;
 }
+
+bool str_is_int(char *s)
+{
+    if (!s) return false;
+    char c;
+    if (*s == '+' || *s == '-') s++;
+    if (*s == '\0') return false;
+    while ((c = *s++)){
+        if (!isdigit(c)) return false;
+    }
+    return true;
+}
+
+bool str_is_float(char *s)
+{
+    char *ep = NULL;
+    strtod(s, &ep);
+    return (ep && !*ep);
+}
+
+int str_char_index(char *s, char c)
+{
+    if (!s) return -1;
+    const char *p = s;
+    do{
+        if (*p==c) return p-s;
+    } while (*++p != '\0');
+    return -1;
+}
+
+void str_char_remove(char *s, char c)
+{
+    if (!s) return;
+    char *pr = s, *pw = s;
+    while (*pr != '\0'){
+        *pw = *pr++;
+        pw += (*pw != c);
+    }
+}
+
+void str_char_replace(char *s, char o, char n)
+{
+    if (!s) return;
+    char *p = s;
+    while (*p != '\0'){
+        if (*p == o) *p = n;
+        p++;
+    }
+}
+
+char* str_to_higher(char *s)
+{
+    char *w = s;
+    do{
+        if (0x60 < *w && *w < 0x7b) *w &= 0xdf;
+    } while (*++w != '\0');
+    return s;
+}
+
+char* str_to_lower(char *s)
+{
+    char *w = s;
+    do{
+        if (0x40 < *w && *w < 0x5b) *w |= 0x20;
+    } while (*++w != '\0');
+    return s;
+}
+
+size_t str_size(char *s)
+{
+    if (!s) return 0;
+    char *r = s;
+    while (*r++ != '\0'){}
+    return r-s;
+}
+
+char* str_dup(char *s)
+{
+    if (!s) return NULL;
+    char *d = (char*) calloc(str_size(s), sizeof(*d));
+    if (d){
+        strcpy(d, s);
+    }
+    return d;
+}
+
+void put_str(char *s)
+{
+    if (!s) return;
+    char c;
+    while ((c=*s++) != '\0'){
+        putchar(c);
+    }
+}
+
+char* str_human_bytes(char *buffer, size_t buff_size, uint64_t bytes)
+{
+    if (!buffer) return NULL;
+    size_t suff_len = sizeof(BYTE_SUFFIXES)/sizeof(*BYTE_SUFFIXES);
+    size_t i = 0;
+    double dbl_bytes = bytes;
+    if (bytes > BYTE_DELIMETER){
+        while (bytes >= (int) BYTE_DELIMETER && i++ < suff_len-1){
+            bytes /= (int) BYTE_DELIMETER;
+            dbl_bytes = bytes;
+        }
+    }
+    int n_p = snprintf(buffer, buff_size, "%.02lf %s", dbl_bytes, BYTE_SUFFIXES[i]);
+    if (n_p < 0 || n_p >= buff_size) return NULL;
+    return buffer;
+}
+
+uint64_t file_size(char *file_path)
+{
+    struct stat f_stats;
+    if (stat(file_path, &f_stats) == -1) return 0;
+    return (uint64_t) f_stats.st_size;
+}
+
 
 #endif // CSON_IMPLEMENTATION
 
