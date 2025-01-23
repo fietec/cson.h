@@ -1,2 +1,2 @@
 # Cson
-TODO: Documentation
+Library for representing, parsing and writing json data in C.

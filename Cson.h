@@ -10,1132 +10,672 @@
 #include <ctype.h>
 #include <sys/stat.h>
 
-#define CSON_DEF_ARRAY_CAPACITY 16
-#define CSON_DEF_ARRAY_MF        2
-#define CSON_MAP_CAPACITY       16
-#define CSON_DEF_INDENT          4
+#define CSON_DEF_ARRAY_CAPACITY   16
+#define CSON_ARRAY_MUL_F           2
+#define CSON_MAP_CAPACITY         16
+#define CSON_DEF_INDENT            4
+#define CSON_BYTE_SIZE        1024.0
+#define CSON_REGION_CAPACITY  2*1024
 
-#define cson_debug(msg, ...) (printf("%s%s:%d: " msg ANSI_END "\n", ANSI_RGB(0, 255, 0),__FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg ANSI_END "\n", ANSI_RGB(255, 128, 0), __FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_eprintln(msg, ...) (fprintf(stderr, "%s%s:%d: [ERROR] " msg ANSI_END "\n", ANSI_RGB(255, 0, 0), __FILE__, __LINE__, ## __VA_ARGS__))
+#define CSON_ANSI_RGB(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
+#define CSON_ANSI_END "\e[0m"
 
-#define CSON_ASSERT(statement, msg, ...) do{if (!(statement)) {cson_eprintln(msg, ##__VA_ARGS__); exit(1);}} while (0);
-#ifdef CSON_ALLOW_WARNINGS
-#define CSON_ASSERT_WARNING(statement, msg, ...) do{if (!(statement)) {cson_warning(msg, ##__VA_ARGS__);}}while(0);
-#else
-#define CSON_ASSERT_WARNING(statement, msg, ...) do{if (!(statement)) {cson_eprintln(msg, ##__VA_ARGS__); exit(1);}}while(0);
-#endif
+#define cson_args_len(...) sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__})/sizeof(typeof(__VA_ARGS__))
+#define cson_args_array(...) (typeof(__VA_ARGS__)[]){__VA_ARGS__}, cson_args_len(__VA_ARGS__)
 
-#define BYTE_DELIMETER 1024.0
+#define cson_info(msg, ...) (printf("%s%s:%d: " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 196, 196), __FILE__, __LINE__, ## __VA_ARGS__))
+#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
+#define cson_error(error, msg, ...) (fprintf(stderr, "%s%s:%d: [ERROR] (%s) " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 0, 0), __FILE__, __LINE__, (error), ## __VA_ARGS__))
 
-const char* BYTE_SUFFIXES[] = {"B", "KB", "MB", "GB", "TB"};
+#define cson_assert(state, msg, ...) do{if (!(state)) {cson_error(msg, "", ##__VA_ARGS__); exit(1);}} while (0)
+#define cson_assert_alloc(alloc) cson_assert((alloc)!=NULL, "Memory allocation failed! (need more RAM :/)")
 
-bool str_is_int(char* s);
-bool str_is_float(char* s);
-
-char* str_to_higher(char* s);
-char* str_to_lower(char* s);
-
-size_t str_size(char* s);
-
-char* str_dup(char* s);
-
-int str_char_index(char* s, char c);
-void str_char_remove(char* s, char c);
-void str_char_replace(char*s, char o, char n);
-char* str_human_bytes(char* buffer, size_t buff_size, uint64_t bytes);
-
-uint64_t file_size(char *file_path);
-
-#define ANSI_RGB(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
-#define ANSI_END "\e[0m"
-
-typedef enum{
-    Cson_Integer,
-    Cson_Double,
-    Cson_Boolean,
-    Cson_String,
-    Cson_Null,
-    Cson_Array,
-    Cson_Map
-} CsonType;
-
-const char* const CsonTypeStrs[] = {
-    [Cson_Integer] = "int",
-    [Cson_Double]  = "double",
-    [Cson_Boolean] = "bool",
-    [Cson_String]  = "String",
-    [Cson_Null]    = "Null",
-    [Cson_Array]   = "Array",
-    [Cson_Map]     = "Map"
-};
-
-typedef enum{
-    CsonError_Success,
-    // parsing
-    CsonError_UnexpectedToken,
-    // run-time
-    CsonError_ItemNotFound,
-    CsonError_FileNotFound,
-    CsonError_Alloc,
-    CsonError_Param
-} CsonError;
-
-const char* const CsonErrorStrings[] = {
-    [CsonError_Success] = "Success",
-    [CsonError_ItemNotFound] = "ItemNotFound",
-    [CsonError_FileNotFound] = "FileNotFound",
-    [CsonError_Alloc] = "Allocation",
-    [CsonError_Param] = "ParametersInvalid",
-    // Parsing Errors
-    [CsonError_UnexpectedToken] = "UnexpectedToken",
-};
-
-typedef enum{
-    CsonArg_Index,
-    CsonArg_Key
-} CsonArgType;
+#define cson_arr_len(arr) ((arr)!= NULL ? sizeof((arr))/sizeof((arr)[0]):0)
 
 typedef struct Cson Cson;
 typedef struct CsonArg CsonArg;
 typedef struct CsonArray CsonArray;
 typedef struct CsonMap CsonMap;
-typedef struct CsonMapValue CsonMapValue;
+typedef struct CsonMapItem CsonMapItem;
+typedef struct CsonArg CsonArg;
+typedef struct CsonStr CsonStr;
+typedef struct CsonArena CsonArena;
+typedef struct CsonRegion CsonRegion;
 
-struct Cson{
-    union{
-        void *null;
-        int integer;
-        double floating;
-        bool boolean;
-        char *string;
-        CsonArray *array;
-        CsonMap *map;
-    } value;
-    CsonType type;
+typedef enum {
+    Cson_Int,
+    Cson_Float,
+    Cson_Bool,
+    Cson_Null,
+    Cson_String,
+    Cson_Array,
+    Cson_Map,
+    Cson__TypeCount
+} CsonType;
+
+const char* const CsonTypeStrings[] = {
+    [Cson_Int] = "int",
+    [Cson_Float] = "float",
+    [Cson_Bool] = "bool",
+    [Cson_Null] = "null",
+    [Cson_String] = "String",
+    [Cson_Array] = "Array",
+    [Cson_Map] = "Map"
+};
+
+_Static_assert(Cson__TypeCount == cson_arr_len(CsonTypeStrings), "CsonType count has changed!");
+
+typedef enum {
+    CsonError_Success,
+    CsonError_InvalidParam,
+    CsonError_InvalidType,
+    CsonError_FileNotFound,
+    CsonError_Any,
+    Cson__ErrorCount
+} CsonError;
+
+const char* const CsonErrorStrings[] = {
+    [CsonError_Success] = "Success",
+    [CsonError_InvalidParam] = "InvalidArguments",
+    [CsonError_FileNotFound] = "FileNotFound",
+    [CsonError_Any] = "Undefined"
+};
+
+_Static_assert(Cson__ErrorCount == cson_arr_len(CsonErrorStrings), "CsonError count has changed!");
+
+typedef enum {
+    CsonArg_Key,
+    CsonArg_Index,
+    Cson__ArgCount
+} CsonArgType;
+
+const char* const CsonArgStrings[] = {
+    [CsonArg_Key] = "Key",
+    [CsonArg_Index] = "Index"
+};
+
+_Static_assert(Cson__ArgCount == cson_arr_len(CsonArgStrings), "CsonArgType count has changed!");
+
+struct CsonStr{
+    char *value;
+    size_t len;
 };
 
 struct CsonArray{
-    Cson **values;
-    size_t capacity;
+    Cson **items;
     size_t size;
+    size_t capacity;
 };
 
 struct CsonMap{
-    CsonMapValue **values;
-    size_t capacity;
+    CsonMapItem **items;
     size_t size;
+    size_t capacity;
 };
 
-struct CsonMapValue{
+struct CsonMapItem{
+    CsonStr key;
     Cson *value;
-    char *key;
-    CsonMapValue *next;
+    CsonMapItem *next;
 };
 
 struct CsonArg{
     CsonArgType type;
     union{
-        char *key;
+        CsonStr key;
         size_t index;
     } value;
-    CsonArg *next;
 };
 
-/**
- * Creates an empty Cson object.
- *
- * @return A pointer to the newly created empty Cson object.
- */
-Cson* Cson_create(void);
+struct Cson{
+    union{
+        int integer;
+        double floating;
+        bool boolean;
+        CsonStr string;
+        CsonArray *array;
+        CsonMap *map;
+        void *null;
+    } value;
+    CsonType type;
+};
 
-/**
- * Frees the memory allocated for a Cson object.
- *
- * @param json A pointer to the Cson object to free.
- */
-void Cson_free(Cson *json);
+struct CsonArena{
+    CsonRegion *first, *last;
+    size_t region_size;
+};
 
-/**
- * Returns the size of the Cson object in memory.
- *
- * @param json A pointer to the Cson object.
- * @return The size of the Cson object in bytes
- */
-size_t Cson_size(Cson *json);
+struct CsonRegion{
+    size_t size;
+    size_t capacity;
+    CsonRegion *next;
+    uintptr_t data[];
+};
 
-/**
- * Retrieves a nested value from a Cson object.
- *
- * @param json A pointer to the Cson object.
- * @param arg_count The number of arguments to specify the path (e.g., array indices or map keys).
- * @param ... A variable number of CsonArg pointers specifying the path.
- * @return A pointer to the nested Cson object, or NULL if not found.
- */
-Cson* Cson_get(Cson *json, size_t arg_count, ...);
+static CsonArena cson_arena = {0};
 
-/**
- * Duplicates a Cson object, creating a deep copy.
- *
- * @param json A pointer to the Cson object to duplicate.
- * @return A pointer to the newly created Cson object that is a deep copy of the original.
- */
-Cson* Cson_dup(Cson *json);
+#define key(kstr) ((CsonArg) {.value.key=cson_str(kstr), .type=CsonArg_Key})
+#define index(istr) ((CsonArg) {.value.index=(size_t)(istr), .type=CsonArg_Index})
+#define cson_get(cson, ...) cson__get(cson, cson_args_array(__VA_ARGS__))
 
-/**
- * Creates a CsonArg object, used for specifying arguments in Cson_get().
- *
- * @param type The type of the argument (e.g., index or key).
- * @param value The value of the argument.
- * @return A pointer to the newly created CsonArg object.
- */
-CsonArg* CsonArg_create(CsonArgType type, void* value);
+Cson* cson__get(Cson *cson, CsonArg args[], size_t count);
 
-/**
- * Macro to create a CsonArg for use in Cson_get() without compiler warnings.
- *
- * @param type The type of the argument (e.g., CsonArg_Index, CsonArg_Key).
- * @param value The value of the argument (e.g., index value or key string).
- * @return A pointer to the newly created CsonArg object.
- */
-#define Arg(type, value) (CsonArg_create((type), (void*) (value)))
+Cson* cson_new_int(int value);
+Cson* cson_new_float(double value);
+Cson* cson_new_bool(bool value);
+Cson* cson_new_string(CsonStr value);
+Cson* cson_new_cstring(char *cstr);
+Cson* cson_new_array(CsonArray *value);
+Cson* cson_new_map(CsonMap *value);
 
-/**
- * Macro to create a CsonArg representing an index, for use in Cson_get().
- *
- * @param ind The index value.
- * @return A pointer to the newly created CsonArg object representing the index.
- */
-#define Index(ind) (CsonArg_create(CsonArg_Index, (ind)))
+int cson_get_int(Cson *cson);
+double cson_get_float(Cson *cson);
+bool cson_get_bool(Cson *cson);
+CsonStr cson_get_string(Cson *cson);
+CsonArray* cson_get_array(Cson *cson);
+CsonMap* cson_get_map(Cson *cson);
 
-/**
- * Macro to create a CsonArg representing a key, for use in Cson_get().
- *
- * @param key The key string.
- * @return A pointer to the newly created CsonArg object representing the key.
- */
-#define Key(key) (CsonArg_create(CsonArg_Key, (key)))
+CsonArray* cson_array_new(void);
+CsonError cson_array_push(CsonArray *array, Cson *value);
+Cson* cson_array_get(CsonArray *array, size_t index);
 
-/**
- * Creates a Cson object from an integer value.
- *
- * @param value The integer value to convert.
- * @return A pointer to the newly created Cson object representing the integer.
- */
-Cson* Cson_from_int(int value);
+CsonMap* cson_map_new(void);
+CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value);
+Cson* cson_map_get(CsonMap *map, CsonStr key);
 
-/**
- * Creates a Cson object from a double value.
- *
- * @param value The double value to convert.
- * @return A pointer to the newly created Cson object representing the double.
- */
-Cson* Cson_from_double(double value);
+CsonRegion* cson__new_region(size_t capacity);
+void* cson_alloc(CsonArena *arena, size_t size);
+void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size);
+void cson_free();
 
-/**
- * Creates a Cson object from a boolean value.
- *
- * @param value The boolean value to convert.
- * @return A pointer to the newly created Cson object representing the boolean.
- */
-Cson* Cson_from_boolean(bool value);
+#define cson_str(string) ((CsonStr){.value=(string), .len=strlen(string)})
+CsonStr cson_str_new(char *cstr);
+uint32_t cson_str_hash(CsonStr str);
+bool cson_str_equals(CsonStr a, CsonStr b);
 
-/**
- * Creates a Cson object from a string value.
- *
- * @param value The string value to convert.
- * @return A pointer to the newly created Cson object representing the string.
- */
-Cson* Cson_from_string(char* value);
+#ifdef CSON_WRITE
+#define CSON_PRINT_INDENT 4
+CsonError cson_write(Cson *json, char *filename);
+void cson_fprint(Cson *value, FILE *file, size_t indent);
+#define cson_print(cson) do {if (cson!=NULL){cson_fprint(cson, stdout, 0); putchar('\n');}else{printf("-null-\n");}} while (0)
+#endif // CSON_WRITE
 
-/**
- * Creates a Cson object representing a null value.
- *
- * @return A pointer to the newly created Cson object representing null.
- */
-Cson* Cson_from_null(void);
+#ifdef CSON_PARSE
+#define cson_parse(buffer, buffer_size) cson_parse_buffer(buffer, buffer_size, "")
+Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename)
+Cson* cson_read(char *filename);
+#endif // CSON_PARSE
 
-/**
- * Creates a Cson object from an array.
- *
- * @param array A pointer to the CsonArray to convert.
- * @return A pointer to the newly created Cson object representing the array.
- */
-Cson* Cson_from_array(CsonArray* array);
-
-/**
- * Creates a Cson object from a map.
- *
- * @param map A pointer to the CsonMap to convert.
- * @return A pointer to the newly created Cson object representing the map.
- */
-Cson* Cson_from_map(CsonMap* map);
-
-/**
- * Extracts an integer value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return The integer value if the Cson object is of type Cson_Integer; otherwise, 0.
- */
-int Cson_to_int(Cson *value);
-
-/**
- * Extracts a double value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return The double value if the Cson object is of type Cson_Double; otherwise, 0.0.
- */
-double Cson_to_double(Cson *value);
-
-/**
- * Extracts a boolean value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return The boolean value if the Cson object is of type Cson_Boolean; otherwise, false.
- */
-bool Cson_to_boolean(Cson *value);
-
-/**
- * Extracts a string value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return The string value if the Cson object is of type Cson_String; otherwise, NULL.
- */
-char* Cson_to_string(Cson *value);
-
-/**
- * Extracts an array value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return A pointer to the CsonArray if the Cson object is of type Cson_Array; otherwise, NULL.
- */
-CsonArray* Cson_to_array(Cson *value);
-
-/**
- * Extracts a map value from a Cson object.
- *
- * @param value A pointer to the Cson object.
- * @return A pointer to the CsonMap if the Cson object is of type Cson_Map; otherwise, NULL.
- */
-CsonMap* Cson_to_map(Cson *value);
-
-
-/**
- * Creates an empty CsonArray object.
- *
- * @return A pointer to the newly created empty CsonArray object.
- */
-CsonArray* CsonArray_create(void);
-
-/**
- * Frees the memory allocated for a CsonArray object, including its elements.
- *
- * @param array A pointer to the CsonArray object to free.
- */
-void CsonArray_free(CsonArray *array);
-
-/**
- * Appends a Cson value to the end of a CsonArray.
- *
- * @param array A pointer to the CsonArray object.
- * @param value A pointer to the Cson object to append.
- * @return A CsonError indicating success or failure.
- */
-CsonError CsonArray_append(CsonArray *array, Cson *value);
-
-/**
- * Retrieves the Cson object at a specified index in a CsonArray.
- *
- * @param array A pointer to the CsonArray object.
- * @param index The index of the element to retrieve.
- * @return A pointer to the Cson object at the specified index, or NULL if the index is out of bounds.
- */
-Cson* CsonArray_get(CsonArray *array, size_t index);
-
-/**
- * Sets the value of a Cson object at a specified index in a CsonArray.
- *
- * @param array A pointer to the CsonArray object.
- * @param index The index where the value should be set.
- * @param value A pointer to the Cson object to set.
- * @return A CsonError indicating success or failure.
- */
-CsonError CsonArray_set(CsonArray *array, size_t index, Cson *value);
-
-/**
- * Removes a Cson object at a specified index from a CsonArray.
- *
- * @param array A pointer to the CsonArray object.
- * @param index The index of the element to remove.
- * @return A CsonError indicating success or failure.
- */
-CsonError CsonArray_remove(CsonArray *array, size_t index);
-
-/**
- * Duplicates a CsonArray object, creating a deep copy of the array and its elements.
- *
- * @param array A pointer to the CsonArray object to duplicate.
- * @return A pointer to the newly created CsonArray object that is a deep copy of the original.
- */
-CsonArray* CsonArray_dup(CsonArray *array);
-
-/**
- * Returns the size of a CsonArray object in memory.
- *
- * @param array A pointer to the CsonArray object.
- * @return The size of the CsonArray in bytes.
- */
-size_t CsonArray_size(CsonArray *array);
-
-/**
- * Creates an empty CsonMap object.
- *
- * @return A pointer to the newly created empty CsonMap object.
- */
-CsonMap* CsonMap_create(void);
-
-/**
- * Frees the memory allocated for a CsonMap object, including its elements.
- *
- * @param map A pointer to the CsonMap object to free.
- */
-void CsonMap_free(CsonMap *map);
-
-/**
- * Retrieves the Cson object associated with a specified key in a CsonMap.
- *
- * @param map A pointer to the CsonMap object.
- * @param key The key associated with the value to retrieve.
- * @return A pointer to the Cson object associated with the key, or NULL if the key does not exist.
- */
-Cson* CsonMap_get(CsonMap *map, char *key);
-
-/**
- * Inserts a key-value pair into a CsonMap. Values with the same key are overwritten.
- *
- * @param map A pointer to the CsonMap object.
- * @param key The key to insert or update.
- * @param value A pointer to the Cson object to associate with the key.
- * @return A CsonError indicating success or failure.
- */
-CsonError CsonMap_insert(CsonMap *map, char *key, Cson *value);
-
-/**
- * Removes a key-value pair from a CsonMap by key.
- *
- * @param map A pointer to the CsonMap object.
- * @param key The key of the element to remove.
- * @return A CsonError indicating success or failure.
- */
-CsonError CsonMap_remove(CsonMap *map, char *key);
-
-/**
- * Duplicates a CsonMap object, creating a deep copy of the map and its elements.
- *
- * @param map A pointer to the CsonMap object to duplicate.
- * @return A pointer to the newly created CsonMap object that is a deep copy of the original.
- */
-CsonMap* CsonMap_dup(CsonMap *map);
-
-/**
- * Returns the size of a CsonMap object in memory.
- *
- * @param map A pointer to the CsonMap object.
- * @return The size of the CsonMap in bytes.
- */
-size_t CsonMap_size(CsonMap *map);
-
+#endif // _CSON_H
 
 #ifdef CSON_IMPLEMENTATION
 
-CsonArray* CsonArray_create(void)
+Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
 {
-    CsonArray* array = (CsonArray*) malloc(sizeof(*array));
-    CSON_ASSERT(array != NULL, "Out of memory!");
-    Cson** values = (Cson**) calloc(CSON_DEF_ARRAY_CAPACITY, sizeof(*values));
-    if (!values){
-        free(array);
-        exit(1);
+    if (cson == NULL) return NULL;
+    Cson *next = cson;
+    for (size_t i=0; i<count; ++i){
+        CsonArg arg = args[i];
+        if (arg.type == CsonArg_Key && next->type == Cson_Map){
+            next = cson_map_get(cson->value.map, arg.value.key);
+            if (next == NULL) return NULL;
+            continue;
+        }
+        else if (arg.type == CsonArg_Index && next->type == Cson_Array){
+            next = cson_array_get(next->value.array, arg.value.index);
+            if (next == NULL) return NULL;
+            continue;
+        }
+        else{
+            cson_error(CsonError_InvalidType, "Cannot %s via %s!", CsonTypeStrings[next->type], CsonArgStrings[arg.type]);
+        }
+        return NULL;
     }
-    array->values = values;
-    array->capacity = CSON_DEF_ARRAY_CAPACITY;
+    return next;
+}
+
+/* Cson constructors */
+Cson* cson_new_int(int value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Int;
+    cson->value.integer = value;
+    return cson;
+}
+
+Cson* cson_new_float(double value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Float;
+    cson->value.floating = value;
+    return cson;
+}
+
+Cson* cson_new_bool(bool value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Bool;
+    cson->value.boolean = value;
+    return cson;
+}
+
+Cson* cson_new_string(CsonStr value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_String;
+    cson->value.string = value;
+    return cson;
+}
+
+Cson* cson_new_cstring(char *cstr)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_String;
+    cson->value.string = cson_str(cstr);
+    return cson;
+}
+
+Cson* cson_new_array(CsonArray *value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Array;
+    cson->value.array = value;
+    return cson;
+}
+
+Cson* cson_new_map(CsonMap *value)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Map;
+    cson->value.map = value;
+    return cson;
+}
+
+Cson* cson_new_null(void)
+{
+    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    cson_assert_alloc(cson);
+    cson->type = Cson_Null;
+    cson->value.null = NULL;
+    return cson;
+}
+
+int cson_get_int(Cson *cson)
+{
+    if (cson->type != Cson_Int) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Int]);
+        return 0;
+    }
+    return cson->value.integer;
+}
+
+double cson_get_float(Cson *cson)
+{
+    if (cson->type != Cson_Float) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Float]);
+        return 0.0;
+    }
+    return cson->value.floating;
+}
+
+bool cson_get_bool(Cson *cson)
+{
+    if (cson->type != Cson_Bool) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Bool]);
+        return false;
+    }
+    return cson->value.boolean;
+}
+
+CsonStr cson_get_string(Cson *cson)
+{
+    if (cson->type != Cson_String) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_String]);
+        return (CsonStr){0};
+    }
+    return cson->value.string;
+}
+
+CsonArray* cson_get_array(Cson *cson)
+{
+    if (cson->type != Cson_Array) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Array]);
+        return NULL;
+    }
+    return cson->value.array;
+}
+
+CsonMap* cson_get_map(Cson *cson)
+{
+    if (cson->type != Cson_Map) {
+        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Map]);
+        return NULL;
+    }
+    return cson->value.map;
+}
+
+
+/* Array implementation */
+
+CsonArray* cson_array_new(void)
+{
+    CsonArray *array = cson_alloc(&cson_arena, sizeof(*array) + CSON_DEF_ARRAY_CAPACITY*sizeof(Cson*));
+    cson_assert_alloc(array);
     array->size = 0;
+    array->capacity = CSON_DEF_ARRAY_CAPACITY;
+    array->items = (Cson**) (array+1);
     return array;
 }
 
-void CsonArray_free(CsonArray *array)
+CsonError cson_array_push(CsonArray *array, Cson *value)
 {
-    if (array){
-        if (array->values){
-            for (size_t i=0; i<array->size; ++i){
-                Cson_free(array->values[i]);
-            }
-            free(array->values);
-        }
-        free(array);
-    }
-}
-
-CsonError CsonArray_append(CsonArray *array, Cson *value)
-{
-    if (!array || !value) return CsonError_Param;
+    if (array == NULL || value == NULL) return CsonError_InvalidParam;
     if (array->size >= array->capacity){
-        size_t new_capacity = array->capacity*CSON_DEF_ARRAY_MF;
-        Cson **new_values = (Cson**) realloc(array->values, sizeof(*new_values)*new_capacity);
-        if (!new_values) return CsonError_Alloc;
-        array->values = new_values;
+        size_t new_capacity = array->capacity * CSON_ARRAY_MUL_F;
+        array->items = cson_realloc(&cson_arena, array->items, array->capacity*sizeof(Cson*), new_capacity*sizeof(Cson));
         array->capacity = new_capacity;
     }
-    array->values[array->size++] = value;
+    array->items[array->size++] = value;
     return CsonError_Success;
 }
 
-Cson* CsonArray_get(CsonArray *array, size_t index)
+Cson* cson_array_get(CsonArray *array, size_t index)
 {
-    if (!array || index >= array->size) return NULL;
-    return array->values[index];
+    if (array == NULL || index >= array->size) return NULL;
+    return array->items[index];
 }
 
-CsonError CsonArray_set(CsonArray *array, size_t index, Cson *value)
-{
-    if (!array || !value || index >= array->size) return CsonError_Param;
-    Cson_free(array->values[index]);
-    array->values[index] = value;
-    return CsonError_Success;
-}
+/* Map implementation */
 
-CsonError CsonArray_remove(CsonArray *array, size_t index)
+CsonMap* cson_map_new(void)
 {
-    if (!array || index >= array->size) return CsonError_Param;
-    Cson_free(array->values[index]);
-    for (size_t i=index; i<array->size-1; ++i){
-        array->values[i] = array->values[i+1];
-    }
-    array->values[array->size-1] = NULL;
-    return CsonError_Success;
-}
-
-size_t CsonArray_size(CsonArray *array)
-{
-    if (!array) return 0;
-    size_t size = sizeof(CsonArray);
-    if (array->values){
-        for (size_t i=0; i<array->size; ++i){
-            size += Cson_size(array->values[i]);
-        }
-    }
-    return size;
-}
-
-CsonArray* CsonArray_dup(CsonArray *array)
-{
-    if (!array) return NULL;
-    CsonArray *new_array = (CsonArray*) malloc(sizeof(*new_array));
-    Cson **new_values = (Cson**) calloc(array->capacity, sizeof(*new_values));
-    if (!new_values){
-        free(new_array);
-        exit(1);
-    }
-    new_array->values = new_values;
-    new_array->capacity = array->capacity;
-    new_array->size = array->size;
-    for (size_t i=0; i<array->size; ++i){
-        Cson *dup_value = Cson_dup(array->values[i]);  
-        if (!dup_value){
-            // TODO: handle error                
-        }      
-        new_array->values[i] = dup_value;
-    }
-    return new_array;
-}
-
-unsigned long CsonMap_hash(char *key)
-{
-    // DJB2 hashing
-    unsigned long hash = 5381;
-    int c;
-    while ((c = *key++)){
-        hash = ((hash << 5) + hash) + c;
-    }
-    return hash % CSON_MAP_CAPACITY;
-}
-
-CsonMapValue* CsonMapValue_create(char *key, Cson *value)
-{
-    CsonMapValue *map_value = (CsonMapValue*) malloc(sizeof(*value));
-    CSON_ASSERT(map_value != NULL, "Out of memory!");
-    char *new_key = str_dup(key);
-    if (!new_key){
-        free(map_value);
-        exit(1);
-    }
-    map_value->key = new_key;
-    map_value->value = value;
-    map_value->next = NULL;
-    return map_value;
-}
-
-void CsonMapValue_free(CsonMapValue *value)
-{
-    CsonMapValue *next;
-    while (value){
-        next = value->next;
-        Cson_free(value->value);
-        free(value->key);
-        free(value);
-        value = next;
-    }
-}
-
-CsonMapValue* CsonMapValue_dup(CsonMapValue *value)
-{
-    if (!value) return NULL;
-    CsonMapValue *new_value = (CsonMapValue*) malloc(sizeof(*new_value));
-    CSON_ASSERT(new_value != NULL, "Out of memory!");
-    char *new_key = str_dup(value->key);
-    if (!new_key){
-        free(new_value);
-        exit(1);
-    }
-    new_value->key = new_key;
-    new_value->value = Cson_dup(value->value);
-    new_value->next = CsonMapValue_dup(value->next);
-    return new_value;
-}
-
-CsonMap* CsonMap_create(void)
-{
-    CsonMap *map = (CsonMap*) malloc(sizeof(*map));
-    CSON_ASSERT(map != NULL, "Out of memory!");
-    CsonMapValue **values = (CsonMapValue**) calloc(CSON_MAP_CAPACITY, sizeof(CsonMapValue*));
-    if (!values){
-        free(map);
-        exit(1);
-    }
-    for (size_t i=0; i<CSON_MAP_CAPACITY; ++i){
-        values[i] = NULL;
-    }
-    map->capacity = CSON_MAP_CAPACITY;
+    CsonMap *map = cson_alloc(&cson_arena, sizeof(*map) + CSON_MAP_CAPACITY*sizeof(CsonMapItem*));
+    cson_assert_alloc(map);
     map->size = 0;
-    map->values = values;
+    map->capacity = CSON_MAP_CAPACITY;
+    map->items = (CsonMapItem**) (map+1);
     return map;
 }
 
-void CsonMap_free(CsonMap *map)
+CsonMapItem* cson_map_item_new(CsonStr key, Cson *value)
 {
-    if (map){
-        if (map->values){
-            for (size_t i=0; i<map->capacity; ++i){
-                CsonMapValue_free(map->values[i]);
-            }
-        }
-    }
+    CsonMapItem *item = cson_alloc(&cson_arena, sizeof(*item));
+    cson_assert_alloc(item);
+    item->key = key;
+    item->value = value;
+    item->next = NULL;
+    return item;
 }
 
-CsonError CsonMap_insert(CsonMap *map, char *key, Cson *value)
+CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value)
 {
-    if (!map || !map->values || !key || !value) return CsonError_Param;
-    size_t index = (size_t) CsonMap_hash(key);
-    CsonMapValue *curr_value = map->values[index];
-    CsonMapValue *new_value = CsonMapValue_create(key, value);
-    if (!new_value) return CsonError_Alloc;
-    if (curr_value != NULL){
-        if (strcmp(curr_value->key, key) == 0){
-            CsonMapValue_free(curr_value);
-            map->values[index] = new_value;
-            return CsonError_Success;
-        }
-        while (curr_value->next){
-            if (strcmp(curr_value->next->key, key) == 0){
-                new_value->next = curr_value->next->next;
-                CsonMapValue_free(curr_value->next);
-                curr_value->next = new_value;
+    if (map == NULL || key.value == NULL || value == NULL) return CsonError_InvalidParam;
+    size_t index = cson_str_hash(key) % map->capacity;
+    CsonMapItem *item = map->items[index];
+    if (item != NULL){
+        do {
+            if (cson_str_equals(item->key, key)){
+                item->value = value;
                 return CsonError_Success;
             }
-            curr_value = curr_value->next;
-        }
-        curr_value->next = new_value;
+            if (item->next == NULL) break;
+            item = item->next;
+        }while(true);
+        item->next = cson_map_item_new(key, value);
     }
     else{
-        map->values[index] = new_value;
+        map->items[index] = cson_map_item_new(key, value);
     }
-    map->size ++;
+    map->size++;
     return CsonError_Success;
 }
 
-Cson* CsonMap_get(CsonMap *map, char *key)
+Cson* cson_map_get(CsonMap *map, CsonStr key)
 {
-    if (!map || !map->values || !key) return NULL;
-    CsonMapValue *value = map->values[CsonMap_hash(key)];
-    while (value){
-        if (strcmp(value->key, key) == 0){
-            return value->value;
-        }
-        value = value->next;
+    if (map == NULL || key.value == NULL) return NULL;
+    size_t index = cson_str_hash(key) % map->capacity;
+    CsonMapItem *item = map->items[index];
+    while (item != NULL){
+        if (cson_str_equals(item->key, key)) return item->value;
+        item = item->next;
     }
     return NULL;
 }
 
-CsonError CsonMap_remove(CsonMap *map, char *key)
+/* Memory management */
+
+CsonRegion* cson__new_region(size_t capacity)
 {
-    if (!map || !map->values || !key) return CsonError_Param;
-    size_t index = CsonMap_hash(key);
-    CsonMapValue *curr_value = map->values[index];
-    if (!curr_value) return CsonError_ItemNotFound;
-    if (strcmp(curr_value->key, key) == 0){
-        map->values[index] = curr_value->next;
-        CsonMapValue_free(curr_value);
-        map->size --;
-        return CsonError_Success;
+    size_t size = sizeof(CsonRegion) + sizeof(uintptr_t)*capacity;
+    CsonRegion *region = malloc(size);
+    cson_assert(region != NULL, "Failed to allocate new region!");
+    region->size = 0;
+    region->capacity = capacity;
+    region->next = NULL;
+    return region;
+}
+
+void cson__free(CsonArena *arena)
+{
+    if (arena == NULL) return;
+    CsonRegion *next = arena->first;
+    while (next != NULL){
+        CsonRegion *temp = next;
+        next = temp->next;
+        free(temp);
     }
-    CsonMapValue *last_value = curr_value;
-    curr_value = curr_value->next;
-    while (curr_value){
-        if (strcmp(curr_value->key, key) == 0){
-            last_value->next = curr_value->next;
-            CsonMapValue_free(curr_value);
-            map->size --;
-            return CsonError_Success;
-        }
-        last_value = curr_value;
-        curr_value = curr_value->next;
+    arena->first = NULL;
+    arena->last = NULL;
+}
+
+void* cson_alloc(CsonArena *arena, size_t size)
+{
+    if (arena == NULL) return NULL;
+    size_t all_size = (size + sizeof(uintptr_t) - 1) / sizeof(uintptr_t);
+    size_t default_capacity = (arena->region_size != 0)? arena->region_size:CSON_REGION_CAPACITY;
+    if (arena->first == NULL){
+        cson_assert(arena->last == NULL, "Invalid arena state!: first:%p, last:%p", arena->first, arena->last);
+        size_t capacity = (all_size > default_capacity)? all_size:default_capacity;
+        CsonRegion *region = cson__new_region(capacity);
+        arena->first = region;
+        arena->last = region;
     }
-    return CsonError_ItemNotFound;
-}
-
-size_t CsonMap_size(CsonMap *map)
-{
-    if (!map) return 0;
-    size_t size = sizeof(*map);
-    CsonMapValue *curr_value;
-    for (size_t i=0; i<map->capacity; ++i){
-        curr_value = map->values[i];
-        while (curr_value){
-            size += (sizeof(*curr_value) + Cson_size(curr_value->value) + str_size(curr_value->key));
-            curr_value = curr_value->next;
-        }
+    CsonRegion *last = arena->last;
+    if (last->size + all_size > last->capacity){
+        cson_assert(arena->last == NULL, "Invalid arena state!: size:%zu, capacity:%zu, next:%p", last->size, last->capacity, last->next);
+        size_t capacity = (all_size > default_capacity)? all_size:default_capacity;
+        last->next = cson__new_region(capacity);
+        arena->last = last->next;
     }
-    return size;
+    void *result = &arena->last->data[arena->last->size];
+    arena->last->size += all_size;
+    return result;
 }
 
-CsonMap* CsonMap_dup(CsonMap *map)
+void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size)
 {
-    if (!map) return NULL;
-    CsonMap *new_map = (CsonMap*) malloc(sizeof(*new_map));
-    CSON_ASSERT(new_map != NULL, "Out of memory!");
-    CsonMapValue **new_values = (CsonMapValue**) calloc(map->capacity, sizeof(*new_values));
-    if (!new_values){
-        free(new_map);
-        exit(1);
+    if (arena == NULL) return NULL;
+    if (old_size >= new_size) return old_ptr;
+    void *new_ptr = cson_alloc(arena, new_size);
+    cson_assert_alloc(new_ptr);
+    char *rc = (char*) old_ptr;
+    char *wc = (char*) new_ptr;
+    for (size_t i=0; i<old_size; ++i){
+        *wc++ = *rc++;
     }
-    new_map->values = new_values;
-    new_map->capacity = map->capacity;
-    new_map->size = map->size;
-    for (size_t i=0; i<map->capacity; ++i){
-        CsonMapValue *new_value = CsonMapValue_dup(map->values[i]);
-        new_map->values[i] = new_value;
+    return new_ptr;
+}
+
+void* cson_dup(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size)
+{
+    if (arena == NULL) return NULL;
+    void *new_ptr = cson_alloc(arena, new_size);
+    cson_assert_alloc(new_ptr);
+    char *rc = (char*) old_ptr;
+    char *wc = (char*) new_ptr;
+    for (size_t i=0; i<new_size; ++i){
+        *wc++ = (i<old_size)?*rc++:'\0';
     }
-    return new_map;
+    return new_ptr;
 }
 
-Cson* Cson_create()
+void cson_free()
 {
-    Cson *json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Null;
-    json->value.null = NULL;
-    return json;
+    cson__free(&cson_arena);
 }
 
-void Cson_free(Cson *json)
+/* Further utilities */
+uint32_t cson_hash(void *p, size_t n)
 {
-    if (json){
-        switch (json->type){
-            case Cson_Array:{
-                CsonArray_free(json->value.array);
-            }break;
-            case Cson_Map:{
-                CsonMap_free(json->value.map);
-            }break;
-            case Cson_String:{
-                free(json->value.string);
-            } break;
-        }
-        free(json);
+    // DJB2 hashing
+    uint32_t hash = 5381;
+    while (n-- > 0){
+        hash = ((hash << 5) + hash) + *((char*)p++);
     }
+    return hash;
 }
 
-Cson* Cson_from_int(int value) 
+
+/* String Utilities */
+
+CsonStr cson_str_new(char *cstr)
 {
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Integer;
-    json->value.integer = value;
-    return json;
+    size_t len = strlen(cstr);
+    char *value = cson_dup(&cson_arena, cstr, len, len+1);
+    return (CsonStr) {.value=value, .len=len};
 }
 
-Cson* Cson_from_double(double value) 
+uint32_t cson_str_hash(CsonStr str)
 {
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Double;
-    json->value.floating = value;
-    return json;
+    return cson_hash(str.value, str.len);
 }
 
-Cson* Cson_from_boolean(bool value) 
+bool cson_str_equals(CsonStr a, CsonStr b)
 {
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Boolean;
-    json->value.boolean = value;  
-    return json;
+    if (a.len != b.len) return false;
+	char *pa = a.value;
+	char *pb = b.value;
+    size_t len = a.len;
+	while (len-- > 0){
+		if (*pa++ != *pb++) return false;
+	}
+	return true;
 }
 
-Cson* Cson_from_string(char* value) 
-{
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_String;
-    json->value.string = str_dup(value); 
-    return json;
-}
+#ifdef CSON_WRITE
 
-Cson* Cson_from_null() 
-{
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Null;
-    return json;
-}
+#define cson_print_indent(file, indent) (fprintf((file), "%*s", (indent)*CSON_PRINT_INDENT, ""))
 
-Cson* Cson_from_array(CsonArray* array) 
+void cson_fprint(Cson *value, FILE *file, size_t indent)
 {
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Array;
-    json->value.array = array;  
-    return json;
-}
-
-Cson* Cson_from_map(CsonMap* map) 
-{
-    Cson* json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    json->type = Cson_Map;
-    json->value.map = map;
-    return json;
-}
-
-int Cson_to_int(Cson *value)
-{
-    if (!value) return 0;
-    if (value->type != Cson_Integer) {
-        cson_eprintln("Could not extract integer from Cson of type %s!", CsonTypeStrs[Cson_Integer]);
-        return 0;
-    }
-    return value->value.integer;
-}
-
-double Cson_to_double(Cson *value)
-{
-    if (!value) return 0.0;
-    if (value->type != Cson_Double) {
-        cson_eprintln("Could not extract double from Cson of type %s!", CsonTypeStrs[Cson_Double]);
-        return 0.0;
-    }
-    return value->value.floating;
-}
-
-bool Cson_to_boolean(Cson *value)
-{
-    if (!value) return false;
-    if (value->type != Cson_Boolean) {
-        cson_eprintln("Could not extract boolean from Cson of type %s!", CsonTypeStrs[Cson_Boolean]);
-        return false;
-    }
-    return value->value.boolean;
-}
-
-char* Cson_to_string(Cson *value)
-{
-    if (!value) return NULL;
-    if (value->type != Cson_String) {
-        cson_eprintln("Could not extract string from Cson of type %s!", CsonTypeStrs[Cson_String]);
-        return NULL;
-    }
-    return value->value.string;
-}
-
-CsonArray* Cson_to_array(Cson *value)
-{
-    if (!value) return NULL;
-    if (value->type != Cson_Array) {
-        cson_eprintln("Could not extract array from Cson of type %s!", CsonTypeStrs[Cson_Array]);
-        return NULL;
-    }
-    return value->value.array;
-}
-
-CsonMap* Cson_to_map(Cson *value)
-{
-    if (!value) return NULL;
-    if (value->type != Cson_Map) {
-        cson_eprintln("Could not extract map from Cson of type %s!", CsonTypeStrs[Cson_Map]);
-        return NULL;
-    }
-    return value->value.map;
-}
-
-CsonArg* CsonArg_create(CsonArgType type, void *value)
-{
-    CsonArg *arg = (CsonArg*) malloc(sizeof(*arg));
-    if (arg){
-        arg->type = type;
-        arg->next = NULL;
-        if (type == CsonArg_Key){
-            char *arg_key = str_dup((char*) value);
-            if (!arg_key){
-                free(arg);
-                return NULL;
+    if (value == NULL || file == NULL) return;
+    switch (value->type){
+        case Cson_Int:{
+            fprintf(file, "%d", value->value.integer);
+        }break;
+        case Cson_Float:{
+            fprintf(file, "%lf", value->value.floating);
+        }break;
+        case Cson_Bool:{
+            fprintf(file, "%s", value->value.boolean? "true":"false");
+        }break; 
+        case Cson_String:{
+            fprintf(file, "\"%s\"", value->value.string);
+        }break;
+        case Cson_Null:{
+            fprintf(file, "null");
+        }break;
+        case Cson_Array:{
+            fprintf(file, "[\n");
+            CsonArray *array = value->value.array;
+            for (size_t i=0; i<array->size; ++i){
+                cson_print_indent(file, indent+1);
+                cson_fprint(array->items[i], file, indent+1);
+                fprintf(file, "%c\n", (i+1 == array->size)? ' ':',');
             }
-            arg->value.key = arg_key;
-        }
-        else{
-            arg->value.index = (size_t) value;
-        }
-    }
-    return arg;
-}
-
-Cson* CsonArg_get(Cson *value, CsonArg *arg)
-{
-    if (!value || !arg) return NULL;
-    if (value->type == Cson_Map && arg->type == CsonArg_Key){
-        Cson *next = CsonMap_get(value->value.map, arg->value.key);
-        if (!next) return NULL;
-        if (arg->next) return CsonArg_get(next, arg->next);
-        return next;
-    }
-    else if (value->type == Cson_Map && arg->type == CsonArg_Key){
-        Cson *next = CsonArray_get(value->value.array, arg->value.index);
-        if (!next) return NULL;
-        if (arg->next) return CsonArg_get(next, arg->next);
-        return next;
-    }
-    return NULL;
-}
-
-void CsonArg_free(CsonArg *arg)
-{
-    CsonArg *next;
-    while (arg){
-        next = arg->next;
-        if (arg->type == CsonArg_Key){
-            free(arg->value.key);
-        }
-        free(arg);
-        arg = next;
-    }
-}
-
-Cson* Cson_get(Cson *json, size_t arg_count, ...)
-{
-    if (!json || arg_count == 0) return NULL;
-    va_list args;
-    va_start(args, arg_count);
-    CsonArg *first_arg;
-    CsonArg *curr_arg;
-    CsonArg *new_arg;
-    for (size_t i=0; i<arg_count; ++i){
-        new_arg = va_arg(args, CsonArg*);
-        if (!new_arg) return NULL;
-        if (i==0) first_arg = new_arg;
-        else curr_arg->next = new_arg;
-        curr_arg = new_arg;
-    }
-    va_end(args);
-    Cson *value = CsonArg_get(json, first_arg);
-    if (!value) cson_eprintln("Could not find any value with this path!");
-    CsonArg_free(first_arg);
-    return value;
-}
-
-Cson* Cson_dup(Cson *json)
-{
-    if (!json) return NULL;
-    Cson *new_json = (Cson*) malloc(sizeof(*json));
-    CSON_ASSERT(json != NULL, "Out of memory!");
-    switch (json->type){
-        case Cson_Array: {
-            CsonArray *new_array = CsonArray_dup(json->value.array);
-            if (!new_array){
-                free(new_json);
-                return NULL;
-            }
-            new_json->value.array = new_array;
+            cson_print_indent(file, indent);
+            fputc(']', file);
         }break;
         case Cson_Map:{
-            CsonMap *new_map = CsonMap_dup(json->value.map);
-            if (!new_map){
-                free(new_json);
-                return NULL;
-            }   
-            new_json->value.map = new_map;
-        }break;
-        case Cson_String:{
-            char *new_string = str_dup(json->value.string);
-            if (!new_string){
-                free(new_json);
-                return NULL;
+            fprintf(file, "{\n");
+            CsonMap *map = value->value.map;
+            size_t size = map->size;
+            for (size_t i=0; i<map->capacity; ++i){
+                CsonMapItem *value = map->items[i];
+                while (value){
+                    cson_print_indent(file, indent+1);
+                    fprintf(file, "\"%s\": ", value->key);
+                    cson_fprint(value->value, file, indent+1);
+                    fprintf(file, "%c\n", (--size > 0)? ',':' ');
+                    value = value->next;
+                }
             }
-            new_json->value.string = new_string;
+            cson_print_indent(file, indent);
+            fputc('}', file);
         }break;
         default:{
-            new_json->value = json->value;
+            cson_error(CsonError_InvalidType, "Invalid value type: %s", CsonErrorStrings[value->type]);
+            return;
         }
     }
-    new_json->type = json->type;
-    return new_json;
 }
 
-size_t Cson_size(Cson *json)
+CsonError cson_write(Cson *json, char *filename)
 {
-    if (!json) return 0;
-    size_t size = sizeof(*json);
-    switch (json->type){
-        case Cson_Array:{
-            size += CsonArray_size(json->value.array);
-        }break;
-        case Cson_Map:{
-            size += CsonMap_size(json->value.map);
-        }break;
-        case Cson_String:{
-            size += str_size(json->value.string);
-        }break;
+    if (json == NULL || filename == NULL) return CsonError_InvalidParam;
+    FILE *file = fopen(filename, "w");
+    if (file == NULl) return CsonError_FileNotFound;
+    cson_fprint(json, file, 0);
+    fclose(file);
+    return CsonError_Success;
+}
+
+#endif // CSON_WRITE
+
+#ifdef CSON_PARSE
+uint64_t cson_file_size(const char* filename){
+    struct stat file;
+    if (stat(filename, &file) == -1){
+        cson_error(CsonError_FileNotFound, "Failed to read file: \"%s\"", filename);
+        return 0;
     }
-    return size;
+    return (uint64_t) file.st_size;
 }
 
-bool str_is_int(char *s)
+#define cson_parse(buffer, buffer_size) cson_parse_buffer(buffer, buffer_size, "")
+
+Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename)
 {
-    if (!s) return false;
-    char c;
-    if (*s == '+' || *s == '-') s++;
-    if (*s == '\0') return false;
-    while ((c = *s++)){
-        if (!isdigit(c)) return false;
+    cson_error(CsonError_Any, "cson_parse_buffer: NOT IMPLEMENTED!");
+    return NULL;
+}
+
+Cson* cson_read(char *filename){
+    FILE *file = fopen(filename, "r");
+    if (file == NULL){
+        cson_error(CsonError_FileNotFound, "Could not find file: \"%s\"", filename);
+        return NULL;
     }
-    return true;
-}
-
-bool str_is_float(char *s)
-{
-    char *ep = NULL;
-    strtod(s, &ep);
-    return (ep && !*ep);
-}
-
-int str_char_index(char *s, char c)
-{
-    if (!s) return -1;
-    const char *p = s;
-    do{
-        if (*p==c) return p-s;
-    } while (*++p != '\0');
-    return -1;
-}
-
-void str_char_remove(char *s, char c)
-{
-    if (!s) return;
-    char *pr = s, *pw = s;
-    while (*pr != '\0'){
-        *pw = *pr++;
-        pw += (*pw != c);
+    uint64_t file_size = cson_file_size(filename);
+    char *file_content = (char*) calloc(file_size+1, sizeof(*file_content));
+    if (!file_content){
+        fclose(file);
+        cson_eprintln("Out of memory!");
+        exit(1);
     }
+    fread(file_content, 1, file_size, file);
+    fclose(file);
+    Cson *cson = cson_parse_buffer(file_content, file_size, filename);
+    free(file_content);
+    return cson;
 }
-
-void str_char_replace(char *s, char o, char n)
-{
-    if (!s) return;
-    char *p = s;
-    while (*p != '\0'){
-        if (*p == o) *p = n;
-        p++;
-    }
-}
-
-char* str_to_higher(char *s)
-{
-    char *w = s;
-    do{
-        if (0x60 < *w && *w < 0x7b) *w &= 0xdf;
-    } while (*++w != '\0');
-    return s;
-}
-
-char* str_to_lower(char *s)
-{
-    char *w = s;
-    do{
-        if (0x40 < *w && *w < 0x5b) *w |= 0x20;
-    } while (*++w != '\0');
-    return s;
-}
-
-size_t str_size(char *s)
-{
-    if (!s) return 0;
-    char *r = s;
-    while (*r++ != '\0'){}
-    return r-s;
-}
-
-char* str_dup(char *s)
-{
-    if (!s) return NULL;
-    char *d = (char*) calloc(str_size(s), sizeof(*d));
-    if (d){
-        strcpy(d, s);
-    }
-    return d;
-}
-
-void put_str(char *s)
-{
-    if (!s) return;
-    char c;
-    while ((c=*s++) != '\0'){
-        putchar(c);
-    }
-}
-
-char* str_human_bytes(char *buffer, size_t buff_size, uint64_t bytes)
-{
-    if (!buffer) return NULL;
-    size_t suff_len = sizeof(BYTE_SUFFIXES)/sizeof(*BYTE_SUFFIXES);
-    size_t i = 0;
-    double dbl_bytes = bytes;
-    if (bytes > BYTE_DELIMETER){
-        while (bytes >= (int) BYTE_DELIMETER && i++ < suff_len-1){
-            bytes /= (int) BYTE_DELIMETER;
-            dbl_bytes = bytes;
-        }
-    }
-    int n_p = snprintf(buffer, buff_size, "%.02lf %s", dbl_bytes, BYTE_SUFFIXES[i]);
-    if (n_p < 0 || n_p >= buff_size) return NULL;
-    return buffer;
-}
-
-uint64_t file_size(char *file_path)
-{
-    struct stat f_stats;
-    if (stat(file_path, &f_stats) == -1) return 0;
-    return (uint64_t) f_stats.st_size;
-}
-
+#endif // CSON_PARSE
 
 #endif // CSON_IMPLEMENTATION
-
-#endif // _CSON_H   

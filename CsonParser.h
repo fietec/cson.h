@@ -219,7 +219,12 @@ CsonArray* cson_parse_array(CsonParser *parser)
 
 CsonMap* cson_parse_map(CsonParser *parser)
 {
-    
+    if (!parser) return NULL;
+    CsonMap *map = CsonMap_create();
+    while (true){
+        CleksToken *token = cson_parser_next(parser);
+        
+    }
 }
 
 #endif // CSON_PARSER_IMPLEMENTATION

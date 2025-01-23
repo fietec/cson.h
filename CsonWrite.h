@@ -4,6 +4,7 @@
 #include "Cson.h"
 
 CsonError Cson_write(Cson *json, char *filename);
+void Cson_fprint_value(Cson *value, FILE *file, size_t indent);
 #define Cson_print(cson) do {Cson_fprint_value(cson, stdout, 0); putchar('\n');} while (0);
 
 #define CSON_WRITE_IMPLEMENTATION // DEBUG
