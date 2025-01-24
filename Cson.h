@@ -301,6 +301,8 @@ bool cson_lex_is_float(char *s, char *e);
 #define cson_parse(buffer, buffer_size) cson_parse_buffer(buffer, buffer_size, "")
 Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename);
 Cson* cson_read(char *filename);
+bool cson__parse_map(CsonMap *map, CsonLexer *lexer);
+bool cson__parse_array(CsonArray *map, CsonLexer *lexer);
 #endif // CSON_PARSE
 
 #endif // _CSON_H
@@ -324,7 +326,7 @@ Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
             continue;
         }
         else{
-            cson_error(CsonError_InvalidType, "Cannot %s via %s!", CsonTypeStrings[next->type], CsonArgStrings[arg.type]);
+            cson_error(CsonError_InvalidType, "Cannot access %s via %s!", CsonTypeStrings[next->type], CsonArgStrings[arg.type]);
         }
         return NULL;
     }
@@ -791,7 +793,7 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token)
             break;
         }
         case '"':{
-            // lex strings
+            // lex string
             cson_lex_inc(lexer);
             char *s_start = cson_lex_get_pointer(lexer);
             if (!cson_lex_find(lexer, '"')){
@@ -821,23 +823,23 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token)
             // check for known literals
             if (memcmp(t_start, "true", t_len) == 0){
                 cson_lex_set_token(token, CsonToken_True, t_start, t_end, t_loc);
-                break;
+                return true;
             }
             if (memcmp(t_start, "false", t_len) == 0){
                 cson_lex_set_token(token, CsonToken_False, t_start, t_end, t_loc);
-                break;
+                return true;
             }
             if (memcmp(t_start, "null", t_len) == 0){
                 cson_lex_set_token(token, CsonToken_Null, t_start, t_end, t_loc);
-                break;
+                return true;
             }
             if (cson_lex_is_int(t_start, t_end)){
                 cson_lex_set_token(token, CsonToken_Int, t_start, t_end, t_loc);
-                break;
+                return true;
             }
             if (cson_lex_is_float(t_start, t_end)){
                 cson_lex_set_token(token, CsonToken_Int, t_start, t_end, t_loc);
-                break;
+                return true;
             }
             cson_error(CsonError_InvalidType, "Invalid literal \"%.*s\" at "CSON_LOC_FMT, t_end, t_start, t_loc);
             cson_lex_set_token(token, CsonToken_Invalid, t_start, t_end, t_loc);
@@ -979,9 +981,6 @@ bool cson_lex_is_float(char *s, char *e)
 
 /* Parser implementation */
 
-bool cson__parse_map(CsonMap *map, CsonLexer *lexer);
-bool cson__parse_array(CsonArray *map, CsonLexer *lexer);
-
 bool cson__parse_map(CsonMap *map, CsonLexer *lexer)
 {
     cson_error(CsonError_Unimplemented, "cson__parse_map");
@@ -998,8 +997,39 @@ bool cson__parse_array(CsonArray *array, CsonLexer *lexer)
 
 Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename)
 {
-    cson_error(CsonError_Unimplemented, "cson_parse_buffer");
-    return NULL;
+    if (buffer == NULL || buffer_size == 0) return NULL;
+    CsonLexer lexer = cson_lex_init(buffer, buffer_size, filename);
+    CsonToken token;
+    if (!cson_lex_next(&lexer, &token)){
+        if (token.type == CsonToken_End){
+            cson_error(CsonError_EndOfBuffer, "file is empty: \"%s\"", filename);
+        }
+        return NULL;
+    }
+    Cson *cson = NULL;
+    switch(token.type){
+        case CsonToken_ArrayOpen:{
+            CsonArray *array = cson_array_new();
+            if (cson__parse_array(array, &lexer)){
+                cson = cson_new_array(array);
+            }
+        }break;
+        case CsonToken_MapOpen:{
+            CsonMap *map = cson_map_new();
+            if (cson__parse_map(map, &lexer)){
+                cson = cson_new_map(map);
+            }
+        }break;
+        default:{
+            cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT": json object may only start with [%s, %s] and not ", cson_loc_expand(token.loc), CsonTokenTypeNames[CsonToken_ArrayOpen], CsonTokenTypeNames[CsonToken_MapOpen], CsonTokenTypeNames[token.type]);
+            return NULL;
+        }
+    }
+    if (cson != NULL && !cson_lex_expect(&lexer, &token, CsonToken_End)){
+        cson_error(CsonError_UnexpectedToken, "json object may not have trailing values after closing of parent %s!", CsonTypeStrings[cson->type]);
+        return NULL;
+    }
+    return cson;
 }
 
 Cson* cson_read(char *filename){
