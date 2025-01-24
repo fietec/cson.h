@@ -3,3 +3,5 @@ out.json
 test.c
 test.exe
 test.json
+cson_lex.c
+lex_test.exe
