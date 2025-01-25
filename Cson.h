@@ -168,7 +168,8 @@ struct CsonRegion{
     uintptr_t data[];
 };
 
-static CsonArena cson_arena = {0};
+static CsonArena cson_default_arena = {0};
+static CsonArena *cson_current_arena = &cson_default_arena;
 
 #define key(kstr) ((CsonArg) {.value.key=cson_str(kstr), .type=CsonArg_Key})
 #define index(istr) ((CsonArg) {.value.index=(size_t)(istr), .type=CsonArg_Index})
@@ -206,6 +207,8 @@ CsonRegion* cson__new_region(size_t capacity);
 void* cson_alloc(CsonArena *arena, size_t size);
 void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size);
 void cson_free();
+void cson_swap_arena(CsonArena *arena);
+void cson_swap_and_free_arena(CsonArena *arena);
 
 #define cson_str(string) ((CsonStr){.value=(string), .len=strlen(string)})
 CsonStr cson_str_new(char *cstr);
@@ -359,14 +362,14 @@ Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
 
 Cson* cson_new(void)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     return cson;
 }
 
 Cson* cson_new_int(int value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Int;
     cson->value.integer = value;
@@ -375,7 +378,7 @@ Cson* cson_new_int(int value)
 
 Cson* cson_new_float(double value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Float;
     cson->value.floating = value;
@@ -384,7 +387,7 @@ Cson* cson_new_float(double value)
 
 Cson* cson_new_bool(bool value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Bool;
     cson->value.boolean = value;
@@ -393,7 +396,7 @@ Cson* cson_new_bool(bool value)
 
 Cson* cson_new_string(CsonStr value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_String;
     cson->value.string = cson_str_new(value.value);
@@ -402,7 +405,7 @@ Cson* cson_new_string(CsonStr value)
 
 Cson* cson_new_cstring(char *cstr)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_String;
     cson->value.string = cson_str_new(cstr);
@@ -411,7 +414,7 @@ Cson* cson_new_cstring(char *cstr)
 
 Cson* cson_new_array(CsonArray *value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Array;
     cson->value.array = value;
@@ -420,7 +423,7 @@ Cson* cson_new_array(CsonArray *value)
 
 Cson* cson_new_map(CsonMap *value)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Map;
     cson->value.map = value;
@@ -429,7 +432,7 @@ Cson* cson_new_map(CsonMap *value)
 
 Cson* cson_new_null(void)
 {
-    Cson *cson = cson_alloc(&cson_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Null;
     cson->value.null = NULL;
@@ -495,7 +498,7 @@ CsonMap* cson_get_map(Cson *cson)
 
 CsonArray* cson_array_new(void)
 {
-    CsonArray *array = cson_alloc(&cson_arena, sizeof(*array) + CSON_DEF_ARRAY_CAPACITY*sizeof(Cson*));
+    CsonArray *array = cson_alloc(cson_current_arena, sizeof(*array) + CSON_DEF_ARRAY_CAPACITY*sizeof(Cson*));
     cson_assert_alloc(array);
     array->size = 0;
     array->capacity = CSON_DEF_ARRAY_CAPACITY;
@@ -508,7 +511,7 @@ CsonError cson_array_push(CsonArray *array, Cson *value)
     if (array == NULL || value == NULL) return CsonError_InvalidParam;
     if (array->size >= array->capacity){
         size_t new_capacity = array->capacity * CSON_ARRAY_MUL_F;
-        array->items = cson_realloc(&cson_arena, array->items, array->capacity*sizeof(Cson*), new_capacity*sizeof(Cson));
+        array->items = cson_realloc(cson_current_arena, array->items, array->capacity*sizeof(Cson*), new_capacity*sizeof(Cson));
         array->capacity = new_capacity;
     }
     array->items[array->size++] = value;
@@ -535,7 +538,7 @@ CsonError cson_array_pop(CsonArray *array, size_t index)
 
 CsonMap* cson_map_new(void)
 {
-    CsonMap *map = cson_alloc(&cson_arena, sizeof(*map) + CSON_MAP_CAPACITY*sizeof(CsonMapItem*));
+    CsonMap *map = cson_alloc(cson_current_arena, sizeof(*map) + CSON_MAP_CAPACITY*sizeof(CsonMapItem*));
     cson_assert_alloc(map);
     map->size = 0;
     map->capacity = CSON_MAP_CAPACITY;
@@ -546,7 +549,7 @@ CsonMap* cson_map_new(void)
 
 CsonMapItem* cson_map_item_new(CsonStr key, Cson *value)
 {
-    CsonMapItem *item = cson_alloc(&cson_arena, sizeof(*item));
+    CsonMapItem *item = cson_alloc(cson_current_arena, sizeof(*item));
     cson_assert_alloc(item);
     item->key = key;
     item->value = value;
@@ -688,9 +691,30 @@ void* cson_dup(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size
     return new_ptr;
 }
 
+void cson_swap_arena(CsonArena *arena)
+{
+    if (arena == NULL){
+        cson_current_arena = &cson_default_arena;
+    }
+    else{
+        cson_current_arena = arena;
+    }
+}
+
+void cson_swap_and_free_arena(CsonArena *arena)
+{
+    cson__free(cson_current_arena);
+    if (arena == NULL){
+        cson_current_arena = &cson_default_arena;
+    }
+    else{
+        cson_current_arena = arena;
+    }
+}
+
 void cson_free()
 {
-    cson__free(&cson_arena);
+    cson__free(cson_current_arena);
 }
 
 /* Further utilities */
@@ -718,7 +742,7 @@ uint64_t cson_file_size(const char* filename){
 CsonStr cson_str_new(char *cstr)
 {
     size_t len = strlen(cstr);
-    char *value = cson_dup(&cson_arena, cstr, len, len+1);
+    char *value = cson_dup(cson_current_arena, cstr, len, len+1);
     return (CsonStr) {.value=value, .len=len};
 }
 
