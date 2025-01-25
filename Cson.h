@@ -16,15 +16,15 @@
 #define CSON_DEF_INDENT            4
 #define CSON_REGION_CAPACITY  2*1024
 
-#define CSON_ANSI_RGB(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
+#define cson_ansi_rgb(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
 #define CSON_ANSI_END "\e[0m"
 
 #define cson_args_len(...) sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__})/sizeof(typeof(__VA_ARGS__))
 #define cson_args_array(...) (typeof(__VA_ARGS__)[]){__VA_ARGS__}, cson_args_len(__VA_ARGS__)
 
-#define cson_info(msg, ...) (printf("%s%s:%d: " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 196, 196), __FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_error(error, msg, ...) (fprintf(stderr, "%s%s:%d [ERROR] (%s) " msg CSON_ANSI_END "\n", CSON_ANSI_RGB(196, 0, 0), __FILE__, __LINE__, (CsonErrorStrings[(error)]), ## __VA_ARGS__))
+#define cson_info(msg, ...) (printf("%s%s:%d: " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 196, 196), __FILE__, __LINE__, ## __VA_ARGS__))
+#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
+#define cson_error(error, msg, ...) (fprintf(stderr, "%s%s:%d [ERROR] (%s): " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 0, 0), __FILE__, __LINE__, (CsonErrorStrings[(error)]), ## __VA_ARGS__))
 
 #define cson_assert(state, msg, ...) do{if (!(state)) {cson_error(0, msg, ##__VA_ARGS__); exit(1);}} while (0)
 #define cson_assert_alloc(alloc) cson_assert((alloc)!=NULL, "Memory allocation failed! (need more RAM :/)")
@@ -194,10 +194,12 @@ CsonMap* cson_get_map(Cson *cson);
 
 CsonArray* cson_array_new(void);
 CsonError cson_array_push(CsonArray *array, Cson *value);
+CsonError cson_array_pop(CsonArray *array, size_t index);
 Cson* cson_array_get(CsonArray *array, size_t index);
 
 CsonMap* cson_map_new(void);
 CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value);
+CsonError cson_map_remove(CsonMap *map, CsonStr key);
 Cson* cson_map_get(CsonMap *map, CsonStr key);
 
 CsonRegion* cson__new_region(size_t capacity);
@@ -212,9 +214,13 @@ bool cson_str_equals(CsonStr a, CsonStr b);
 
 #ifdef CSON_WRITE
 #define CSON_PRINT_INDENT 4
+#define cson_print(cson) do{if (cson!=NULL){cson_fprint(cson, stdout, 0); putchar('\n');}else{printf("-null-\n");}} while (0)
+#define cson_array_print(array) do{if (array!=NULL){cson_array_fprint(array, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
+#define cson_map_print(map) do{if (map!=NULL){cson_map_fprint(map, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
 bool cson_write(Cson *json, char *filename);
 void cson_fprint(Cson *value, FILE *file, size_t indent);
-#define cson_print(cson) do {if (cson!=NULL){cson_fprint(cson, stdout, 0); putchar('\n');}else{printf("-null-\n");}} while (0)
+void cson_array_fprint(CsonArray *array, FILE *file, size_t indent);
+void cson_map_fprint(CsonMap *map, FILE *file, size_t indent);
 #endif // CSON_WRITE
 
 #ifdef CSON_PARSE
@@ -255,12 +261,12 @@ const char* const CsonTokenTypeNames[] = {
     [CsonToken_ArrayClose] = "ArrayClose",
     [CsonToken_Sep] = "Sep",
     [CsonToken_MapSep] = "MapSep",
-    [CsonToken_String] = "Literal: String",
-    [CsonToken_Int] = "Literal: Int",
-    [CsonToken_Float] = "Literal: Float",
-    [CsonToken_True] = "Literal: True",
-    [CsonToken_False] = "Literal: False",
-    [CsonToken_Null] = "Literal: Null",
+    [CsonToken_String] = "String",
+    [CsonToken_Int] = "Int",
+    [CsonToken_Float] = "Float",
+    [CsonToken_True] = "True",
+    [CsonToken_False] = "False",
+    [CsonToken_Null] = "Null",
     [CsonToken_Invalid] = "Invalid",
     [CsonToken_End] = "--END--"
 };
@@ -304,6 +310,8 @@ bool cson_lex_is_float(char *s, char *e);
 /* Parser */
 #define CSON_VALUE_TOKENS CsonToken_ArrayOpen, CsonToken_MapOpen, CsonToken_Int, CsonToken_Float, CsonToken_True, CsonToken_False, CsonToken_Null, CsonToken_String
 #define cson_parse(buffer, buffer_size) cson_parse_buffer(buffer, buffer_size, "")
+#define cson_error_unexpected(loc, actual, ...) cson__error_unexpected(loc, cson_token_args_array(__VA_ARGS__), actual, __FILE__, __LINE__)
+void cson__error_unexpected(CsonLoc loc, CsonTokenType expected[], size_t expected_count, CsonTokenType actual, char *filename, size_t line);
 Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename);
 Cson* cson_read(char *filename);
 bool cson__parse_map(CsonMap *map, CsonLexer *lexer);
@@ -513,6 +521,16 @@ Cson* cson_array_get(CsonArray *array, size_t index)
     return array->items[index];
 }
 
+CsonError cson_array_pop(CsonArray *array, size_t index)
+{
+    if (array == NULL) return CsonError_InvalidParam;
+    if (index >= array->size) return CsonError_IndexError;
+    for (size_t i=index; i<array->capacity-1; ++i){
+        array->items[i] = array->items[i+1];
+    }
+    return CsonError_Success;
+}
+
 /* Map implementation */
 
 CsonMap* cson_map_new(void)
@@ -557,6 +575,28 @@ CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value)
     }
     map->size++;
     return CsonError_Success;
+}
+
+CsonError cson_map_remove(CsonMap *map, CsonStr key)
+{
+    if (map == NULL || key.value == NULL) return CsonError_InvalidParam;
+    size_t index = cson_str_hash(key) % map->capacity;
+    CsonMapItem *item = map->items[index];
+    if (item == NULL) return CsonError_KeyError;
+    if (cson_str_equals(item->key, key)){
+        map->items[index] = item->next;
+        map->size--;
+        return CsonError_Success;
+    }
+    while (item->next != NULL){
+        if (cson_str_equals(item->next->key, key)){
+            item->next = item->next->next;
+            map->size--;
+            return CsonError_Success;
+        }
+        item = item->next;
+    }
+    return CsonError_KeyError;
 }
 
 Cson* cson_map_get(CsonMap *map, CsonStr key)
@@ -723,38 +763,46 @@ void cson_fprint(Cson *value, FILE *file, size_t indent)
             fprintf(file, "null");
         }break;
         case Cson_Array:{
-            fprintf(file, "[\n");
-            CsonArray *array = value->value.array;
-            for (size_t i=0; i<array->size; ++i){
-                cson_print_indent(file, indent+1);
-                cson_fprint(array->items[i], file, indent+1);
-                fprintf(file, "%c\n", (i+1 == array->size)? ' ':',');
-            }
-            cson_print_indent(file, indent);
-            fputc(']', file);
+            cson_array_fprint(value->value.array, file, indent);
         }break;
         case Cson_Map:{
-            fprintf(file, "{\n");
-            CsonMap *map = value->value.map;
-            size_t size = map->size;
-            for (size_t i=0; i<map->capacity; ++i){
-                CsonMapItem *value = map->items[i];
-                while (value){
-                    cson_print_indent(file, indent+1);
-                    fprintf(file, "\"%s\": ", value->key.value);
-                    cson_fprint(value->value, file, indent+1);
-                    fprintf(file, "%c\n", (--size > 0)? ',':' ');
-                    value = value->next;
-                }
-            }
-            cson_print_indent(file, indent);
-            fputc('}', file);
+            cson_map_fprint(value->value.map, file, indent);
         }break;
         default:{
             cson_error(CsonError_InvalidType, "Invalid value type: %s", CsonErrorStrings[value->type]);
             return;
         }
     }
+}
+
+void cson_array_fprint(CsonArray *array, FILE *file, size_t indent)
+{
+    fprintf(file, "[\n");
+    for (size_t i=0; i<array->size; ++i){
+        cson_print_indent(file, indent+1);
+        cson_fprint(array->items[i], file, indent+1);
+        fprintf(file, "%c\n", (i+1 == array->size)? ' ':',');
+    }
+    cson_print_indent(file, indent);
+    fputc(']', file);
+}
+
+void cson_map_fprint(CsonMap *map, FILE *file, size_t indent)
+{
+    fprintf(file, "{\n");
+    size_t size = map->size;
+    for (size_t i=0; i<map->capacity; ++i){
+        CsonMapItem *value = map->items[i];
+        while (value){
+            cson_print_indent(file, indent+1);
+            fprintf(file, "\"%s\": ", value->key.value);
+            cson_fprint(value->value, file, indent+1);
+            fprintf(file, "%c\n", (--size > 0)? ',':' ');
+            value = value->next;
+        }
+    }
+    cson_print_indent(file, indent);
+    fputc('}', file);
 }
 
 bool cson_write(Cson *json, char *filename)
@@ -859,7 +907,7 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token)
                 cson_lex_set_token(token, CsonToken_Float, t_start, t_end, t_loc);
                 return true;
             }
-            cson_error(CsonError_InvalidType, "Invalid literal \"%.*s\" at "CSON_LOC_FMT, t_end, t_start, t_loc);
+            cson_error(CsonError_InvalidType, "Invalid literal \"%.*s\" at "CSON_LOC_FMT, t_len, t_start, t_loc);
             cson_lex_set_token(token, CsonToken_Invalid, t_start, t_end, t_loc);
             return false;
         }
@@ -875,12 +923,7 @@ bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[],
     for (size_t i=0; i<count; ++i){
         if (token->type == types[i]) return true;
     }
-    cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT " Expected token of type [", cson_loc_expand(token->loc));
-    size_t i;
-    for (i=0; i<count-1; ++i){
-        printf("\b%s, ", CsonTokenTypeNames[types[i]]);
-    }
-    printf("%s] but got %s!\n", CsonTokenTypeNames[types[i]], CsonTokenTypeNames[token->type]);
+    cson__error_unexpected(token->loc, types, count, token->type, __FILE__, __LINE__);
     return false;  
 }
 
@@ -997,6 +1040,17 @@ bool cson_lex_is_float(char *s, char *e)
     return (ep && ep == e);
 }
 
+void cson__error_unexpected(CsonLoc loc, CsonTokenType expected[], size_t expected_count, CsonTokenType actual, char *filename, size_t line)
+{
+    if (expected_count == 0) return;
+    fprintf(stderr, "%s%s:%d [ERROR] (%s): Expected [", cson_ansi_rgb(196, 0, 0), filename, line, CsonErrorStrings[CsonError_UnexpectedToken]);
+    size_t i;
+    for (i=0; i<expected_count-1; ++i){
+        fprintf(stderr, "%s, ", CsonTokenTypeNames[expected[i]]);
+    }
+    fprintf(stderr, "%s], but got [%s] at "CSON_LOC_FMT CSON_ANSI_END"\n", CsonTokenTypeNames[expected[i]], CsonTokenTypeNames[actual], cson_loc_expand(loc));
+}
+
 /* Parser implementation */
 
 bool cson__parse_map(CsonMap *map, CsonLexer *lexer)
@@ -1006,10 +1060,12 @@ bool cson__parse_map(CsonMap *map, CsonLexer *lexer)
     while (true){
         if (!cson_lex_expect(lexer, &token, CsonToken_String, CsonToken_MapClose)) return false;
         if (token.type == CsonToken_MapClose && map->size > 0){
-            cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT" Expected value but found %s", cson_loc_expand(token.loc), CsonTokenTypeNames[CsonToken_MapClose]);
-            return false;
+            if (map->size > 0){
+                cson_error_unexpected(token.loc, token.type, CSON_VALUE_TOKENS);
+                return false;
+            }
+            return true;
         }
-        if (token.type == CsonToken_MapClose) return true;
         size_t key_size = token.len+1;
         char key_buffer[key_size];
         cson_lex_extract(&token, key_buffer, key_size);
@@ -1032,9 +1088,12 @@ bool cson__parse_array(CsonArray *array, CsonLexer *lexer)
     CsonToken token;
     while (true){
         if (!cson_lex_expect(lexer, &token, CSON_VALUE_TOKENS, CsonToken_ArrayClose)) return false;
-        if (token.type == CsonToken_ArrayClose && array->size > 0){
-            cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT" Expected value but found %s", cson_loc_expand(token.loc), CsonTokenTypeNames[CsonToken_ArrayClose]);
-            return false;
+        if (token.type == CsonToken_ArrayClose){
+            if (array->size > 0){
+                cson_error_unexpected(token.loc, token.type, CSON_VALUE_TOKENS);
+                return false;
+            }
+            return true;
         }
         Cson *cson = NULL;
         if (!cson__parse_value(&cson, lexer, &token)) return false;
@@ -1115,7 +1174,7 @@ Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename)
             }
         }break;
         default:{
-            cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT": json object may only start with [%s, %s] and not ", cson_loc_expand(token.loc), CsonTokenTypeNames[CsonToken_ArrayOpen], CsonTokenTypeNames[CsonToken_MapOpen], CsonTokenTypeNames[token.type]);
+            cson_error(CsonError_UnexpectedToken, CSON_LOC_FMT": json object may only start with [%s, %s] and not [%s]", cson_loc_expand(token.loc), CsonTokenTypeNames[CsonToken_ArrayOpen], CsonTokenTypeNames[CsonToken_MapOpen], CsonTokenTypeNames[token.type]);
             return NULL;
         }
     }
