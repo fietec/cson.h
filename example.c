@@ -7,7 +7,7 @@
 
 int main(void)
 {
-    Cson *cson = cson_read("test.json");
+    Cson *cson = cson_read("example.json");
     CsonMap *map = cson_get_map(cson_get(cson, key("company"), key("employees"), index(0), key("manager")));
     cson_map_print(map);
     cson_map_remove(map, cson_str("id"));
