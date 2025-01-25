@@ -1,0 +1,59 @@
+{
+  "company": {
+    "name": "Tech Innovations",
+    "founding_year": 2015,
+    "employees": [
+      {
+        "id": 1,
+        "name": "Alice",
+        "role": "Developer",
+        "skills": ["JavaScript", "Python", "React"],
+        "active": true,
+        "manager": {
+          "id": 101,
+          "name": "John Doe",
+          "role": "Lead Developer"
+        }
+      },
+      {
+        "id": 2,
+        "name": "Bob",
+        "role": "Designer",
+        "skills": ["Photoshop", "UI/UX", "Illustrator"],
+        "active": true,
+        "manager": {
+          "id": 102,
+          "name": "Jane Smith",
+          "role": "Lead Designer"
+        }
+      }
+    ],
+    "projects": [
+      {
+        "project_id": "P001",
+        "name": "AI Platform",
+        "budget": 150000,
+        "deadline": "2025-12-31"
+      },
+      {
+        "project_id": "P002",
+        "name": "Blockchain App",
+        "budget": 100000,
+        "deadline": "2026-05-15"
+      }
+    ],
+    "headquarters": {
+      "city": "San Francisco",
+      "state": "CA",
+      "country": "USA"
+    },
+    "contact": {
+      "phone": "+1-800-555-0199",
+      "email": "contact@techinnovations.com",
+      "social": {
+        "twitter": "@TechInno",
+        "facebook": "facebook.com/techinnovations"
+      }
+    }
+  }
+}
