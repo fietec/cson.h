@@ -6,6 +6,8 @@ For this, `cson` uses the `Cson` struct which may contain any json base type or 
 
 Therefore, if you just require a simple streaming json parser, you may be better off looking for something like [yajl](https://github.com/lloyd/yajl). But if you intent to be able to modify parsed json data while using the underlying data structures, `cson.h` may be for you.
 
+**Warning**: This library is still in development and may yet experience critical changes
+
 ## How to build
 `cson.h` is an [stb-style](https://github.com/nothings/stb/blob/master/docs/stb_howto.txt) library, which means a single header file and no further dependencies. Define `CSON_IMPLEMENTATION` to access the function implementations, otherwise `cson.h` will act as a regular header-file.
 Writing and parsing are for modularity's sake not included by default. To access them, define `CSON_WRITE` and `CSON_PARSE` respectively:
@@ -260,5 +262,4 @@ int main(void)
     cson_free();
     return 0;
 }
-
 ```
