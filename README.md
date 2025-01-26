@@ -87,8 +87,8 @@ To extract data from a nested tree of `Cson` objects, use the `cson_get` functio
 *city.json*:
 ```json
 {
-	"houses":[
-    	{name:"house1", stories:2},
+    "houses":[
+        {name:"house1", stories:2},
         {name: "house2", stories:3}
     ],
     "name": "FancyCity"
