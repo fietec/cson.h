@@ -88,14 +88,8 @@ To extract data from a nested tree of `Cson` objects, use the `cson_get` functio
 ```json
 {
     "houses":[
-        {
-            name: "house1", 
-            stories: 2
-        },
-        {
-            name: "house2", 
-            stories:3
-        }
+        {"name":"house1", "stories":2},
+        {"name": "house2", "stories":3}
     ],
     "name": "FancyCity"
 }
@@ -106,7 +100,7 @@ Cson *city = cson_read("city.json");
 Cson *house2 = cson_get(city, key("houses"), index(1));
 cson_print(house2);
 ```
-> {name: "house2", stories:3}
+> {"name": "house2", "stories":3}
 
 #### CsonArray
 ```c 
