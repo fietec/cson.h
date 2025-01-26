@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -754,13 +753,13 @@ uint32_t cson_str_hash(CsonStr str)
 bool cson_str_equals(CsonStr a, CsonStr b)
 {
     if (a.len != b.len) return false;
-	char *pa = a.value;
-	char *pb = b.value;
+    char *pa = a.value;
+    char *pb = b.value;
     size_t len = a.len;
-	while (len-- > 0){
-		if (*pa++ != *pb++) return false;
-	}
-	return true;
+    while (len-- > 0){
+        if (*pa++ != *pb++) return false;
+    }
+    return true;
 }
 
 #ifdef CSON_WRITE
@@ -964,16 +963,16 @@ bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size)
             if (*r == '\\'){
                 switch(*++r){
                     case '\'': *w = 0x27; break;
-					case '"':  *w = 0x22; break;
-					case '?':  *w = 0x3f; break;
-					case '\\': *w = 0x5c; break;
-					case 'a':  *w = 0x07; break;
-					case 'b':  *w = 0x08; break;
-					case 'f':  *w = 0x0c; break;
-					case 'n':  *w = 0x0a; break;
-					case 'r':  *w = 0x0d; break;
-					case 't':  *w = 0x09; break;
-					case 'v':  *w = 0x0b; break;
+                    case '"':  *w = 0x22; break;
+                    case '?':  *w = 0x3f; break;
+                    case '\\': *w = 0x5c; break;
+                    case 'a':  *w = 0x07; break;
+                    case 'b':  *w = 0x08; break;
+                    case 'f':  *w = 0x0c; break;
+                    case 'n':  *w = 0x0a; break;
+                    case 'r':  *w = 0x0d; break;
+                    case 't':  *w = 0x09; break;
+                    case 'v':  *w = 0x0b; break;
                     default:{
                         *w++ = '\\';
                         *w = *r;
@@ -1049,12 +1048,12 @@ bool cson_lex_is_delimeter(char c)
 
 bool cson_lex_is_int(char *s, char *e)
 {
-	if (!s || !e || e-s < 1) return false;
-	if (*s == '-' || *s == '+') s++;
-	while (s < e){
-		if (!isdigit(*s++)) return false;
-	}
-	return true;
+    if (!s || !e || e-s < 1) return false;
+    if (*s == '-' || *s == '+') s++;
+    while (s < e){
+        if (!isdigit(*s++)) return false;
+    }
+    return true;
 }
 
 bool cson_lex_is_float(char *s, char *e)
