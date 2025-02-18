@@ -210,6 +210,9 @@ Cson* cson_new_cstring(char *cstr);
 Cson* cson_new_array(CsonArray *value);
 Cson* cson_new_map(CsonMap *value);
 
+size_t cson_len(Cson *cson);
+size_t cson_memsize(Cson *cson);
+
 int cson_get_int(Cson *cson);
 double cson_get_float(Cson *cson);
 bool cson_get_bool(Cson *cson);
@@ -217,15 +220,26 @@ CsonStr cson_get_string(Cson *cson);
 CsonArray* cson_get_array(Cson *cson);
 CsonMap* cson_get_map(Cson *cson);
 
+bool cson_is_int(Cson *cson);
+bool cson_is_float(Cson *cson);
+bool cson_is_bool(Cson *cson);
+bool cson_is_string(Cson *cson);
+bool cson_is_array(Cson *cson);
+bool cson_is_map(Cson *cson);
+bool cson_is_null(Cson *cson);
+
 CsonArray* cson_array_new(void);
 CsonError cson_array_push(CsonArray *array, Cson *value);
 CsonError cson_array_pop(CsonArray *array, size_t index);
 Cson* cson_array_get(CsonArray *array, size_t index);
+Cson* cson_array_get_last(CsonArray *array);
+size_t cson_array_memsize(CsonArray *array);
 
 CsonMap* cson_map_new(void);
 CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value);
 CsonError cson_map_remove(CsonMap *map, CsonStr key);
 Cson* cson_map_get(CsonMap *map, CsonStr key);
+size_t cson_map_memsize(CsonMap *map);
 
 CsonRegion* cson__new_region(size_t capacity);
 void* cson_alloc(CsonArena *arena, size_t size);
@@ -238,6 +252,7 @@ void cson_swap_and_free_arena(CsonArena *arena);
 CsonStr cson_str_new(char *cstr);
 uint32_t cson_str_hash(CsonStr str);
 bool cson_str_equals(CsonStr a, CsonStr b);
+size_t cson_str_memsize(CsonStr str);
 
 #ifdef CSON_WRITE
 #define CSON_PRINT_INDENT 4
@@ -382,6 +397,32 @@ Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
     return next;
 }
 
+size_t cson_len(Cson *cson)
+{
+    if (cson == NULL) return 0;
+    switch (cson->type){
+        case Cson_Array: return cson->value.array->size;
+        case Cson_Map: return cson->value.map->size;
+        default:{
+            cson_error(CsonError_InvalidType, "value of type %s does not have a length.", CsonTokenTypeNames[cson->type]);
+            return 0;
+        }
+    }
+}
+
+size_t cson_memsize(Cson *cson)
+{
+    if (cson == NULL) return 0;
+    size_t total = sizeof(Cson);
+    switch (cson->type){
+        case Cson_Array: total += cson_array_memsize(cson->value.array); break;
+        case Cson_Map: total += cson_map_memsize(cson->value.map); break;
+        case Cson_String: total += cson_str_memsize(cson->value.string); break;
+        default: break;
+    }
+    return total;
+}
+
 /* Cson constructors */
 
 Cson* cson_new(void)
@@ -517,6 +558,47 @@ CsonMap* cson_get_map(Cson *cson)
     return cson->value.map;
 }
 
+bool cson_is_int(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Int;
+}
+
+bool cson_is_float(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Float;
+}
+
+bool cson_is_bool(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Bool;
+}
+
+bool cson_is_string(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_String;
+}
+
+bool cson_is_array(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Array;
+}
+
+bool cson_is_map(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Map;
+}
+
+bool cson_is_null(Cson *cson)
+{
+    if (cson == NULL) return false;
+    return cson->type == Cson_Null;
+}
 
 /* Array implementation */
 
@@ -548,6 +630,12 @@ Cson* cson_array_get(CsonArray *array, size_t index)
     return array->items[index];
 }
 
+Cson* cson_array_get_last(CsonArray *array)
+{
+    if (array == NULL || array->size == 0) return NULL;
+    return array->items[array->size-1];
+}
+
 CsonError cson_array_pop(CsonArray *array, size_t index)
 {
     if (array == NULL) return CsonError_InvalidParam;
@@ -556,6 +644,16 @@ CsonError cson_array_pop(CsonArray *array, size_t index)
         array->items[i] = array->items[i+1];
     }
     return CsonError_Success;
+}
+
+size_t cson_array_memsize(CsonArray *array)
+{
+    if (array == NULL) return 0;
+    size_t total = sizeof(CsonArray);
+    for (size_t i=0; i<array->size; ++i){
+        total += cson_memsize(array->items[i]);
+    }
+    return total;
 }
 
 /* Map implementation */
@@ -636,6 +734,20 @@ Cson* cson_map_get(CsonMap *map, CsonStr key)
         item = item->next;
     }
     return NULL;
+}
+
+size_t cson_map_memsize(CsonMap *map)
+{
+    if (map == NULL) return 0;
+    size_t total = sizeof(CsonMap);
+    for (size_t i=0; i<map->capacity; ++i){
+        CsonMapItem *item = map->items[i];
+        while (item != NULL){
+            total += (sizeof(CsonMapItem) + cson_str_memsize(item->key) + cson_memsize(item->value));
+            item = item->next;
+        }
+    }
+    return total;
 }
 
 /* Memory management */
@@ -785,6 +897,15 @@ bool cson_str_equals(CsonStr a, CsonStr b)
         if (*pa++ != *pb++) return false;
     }
     return true;
+}
+
+size_t cson_str_memsize(CsonStr string)
+{
+    size_t total = sizeof(CsonStr);
+    if (string.value != NULL){
+        total += string.len + 1;
+    }
+    return total;
 }
 
 #ifdef CSON_WRITE
@@ -955,7 +1076,7 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token)
                 cson_lex_set_token(token, CsonToken_Float, t_start, t_end, t_loc);
                 return true;
             }
-            cson_error(CsonError_InvalidType, "Invalid literal \"%.*s\" at "CSON_LOC_FMT, t_len, t_start, t_loc);
+            cson_error(CsonError_InvalidType, "Invalid literal \"%.*s\" at "CSON_LOC_FMT, t_len, t_start, cson_loc_expand(t_loc));
             cson_lex_set_token(token, CsonToken_Invalid, t_start, t_end, t_loc);
             return false;
         }
