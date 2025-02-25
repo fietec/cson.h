@@ -74,15 +74,30 @@ Cson* cson_new_cstring(char *cstr);
 Cson* cson_new_array(CsonArray *value);
 Cson* cson_new_map(CsonMap *value);
 
-// simple wrappers for retreiving the stored value
-int cson_get_int(Cson *cson);
-double cson_get_float(Cson *cson);
-bool cson_get_bool(Cson *cson);
-CsonStr cson_get_string(Cson *cson);
-CsonArray* cson_get_array(Cson *cson);
-CsonMap* cson_get_map(Cson *cson);
+// type checking
+bool cson_is_int(Cson *cson);
+bool cson_is_float(Cson *cson);
+bool cson_is_bool(Cson *cson);
+bool cson_is_string(Cson *cson);
+bool cson_is_array(Cson *cson);
+bool cson_is_map(Cson *cson);
+bool cson_is_null(Cson *cson);
+
+// simple wrappers for retreiving the stored value (macros), va-args can be empty
+int cson_get_int(Cson *cson, (CsonArg) ...);
+double cson_get_float(Cson *cson, (CsonArg) ...);
+bool cson_get_bool(Cson *cson, (CsonArg) ...);
+CsonStr cson_get_string(Cson *cson, (CsonArg) ...);
+CsonArray* cson_get_array(Cson *cson, (CsonArg) ...);
+CsonMap* cson_get_map(Cson *cson, (CsonArg) ...);
 
 Cson* cson_get(Cson *cson, (CsonArg)...); // macro
+
+// calculate the amount of dynamic memory used for a nested structure
+size_t cson_memsize(Cson *cson);
+// get the number of arguments stored in the current level (works only for Cson_Array and Cson_Map)
+size_t cson_len(Cson *cson);
+
 ```
 To extract data from a nested tree of `Cson` objects, use the `cson_get` function together with the `key` and `index` macros as follows:
 
@@ -104,6 +119,14 @@ cson_print(house2);
 ```
 > {"name": "house2", "stories":3}
 
+or using the `cson_get_<type>` wrappers to access the underlying data types:
+```c 
+Cson *city = cson_read("city.json");
+int stories = cson_get_int(city, key("houses"), index(1), key("stories"));
+printf("%d\n", stories);
+```
+> 3
+
 #### CsonArray
 ```c 
 struct CsonArray{
@@ -120,6 +143,8 @@ CsonArray* cson_array_new(void);
 CsonError cson_array_push(CsonArray *array, Cson *value);
 CsonError cson_array_pop(CsonArray *array, size_t index);
 Cson* cson_array_get(CsonArray *array, size_t index);
+
+size_t cson_array_memsize(CsonArray *array);
 ```
 
 #### CsonMap
@@ -144,6 +169,8 @@ CsonMap* cson_map_new(void);
 CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value);
 CsonError cson_map_remove(CsonMap *map, CsonStr key);
 Cson* cson_map_get(CsonMap *map, CsonStr key);
+
+size_t cson_map_memsize(CsonMap *map);
 ```
 
 #### CsonStr
@@ -161,6 +188,8 @@ CsonStr cson_str(char *cstr);
 CsonStr cson_str_new(char *cstr); // allocates new string
 uint32_t cson_str_hash(CsonStr str);
 bool cson_str_equals(CsonStr a, CsonStr b);
+
+size_t cson_str_memsize(CsonStr str);
 ```
 
 ### Writing
@@ -231,7 +260,7 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token);
 bool cson_lex_expect(CsonLexer *lexer, CsonToken *token, (CsonTokenType) ...); // (macro)
 bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size);
 ```
-To learn how to use the lexer, refer to [cleks2.h](https://github.com/fietec/cleks2.h), which is a general purpose version of  the `CsonLexer`.
+To learn how to use the lexer, refer to [jexc.h](https://github.com/fietec/jexc.h), which is a standalone version of the `CsonLexer`.
 
 ### Examples
 #### Parsing and modification

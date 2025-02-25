@@ -43,8 +43,9 @@
 #define cson_ansi_rgb(r, g, b) ("\e[38;2;" #r ";" #g ";" #b "m")
 #define CSON_ANSI_END "\e[0m"
 
+#define cson_drop_first(arg, ...) __VA_ARGS__
 #define cson_args_len(...) sizeof((typeof(__VA_ARGS__)[]){__VA_ARGS__})/sizeof(typeof(__VA_ARGS__))
-#define cson_args_array(...) (typeof(__VA_ARGS__)[]){__VA_ARGS__}, cson_args_len(__VA_ARGS__)
+#define cson_args_array(...) (typeof(__VA_ARGS__)[]){cson_drop_first(__VA_ARGS__)}, cson_args_len(__VA_ARGS__)-1
 
 #define cson_info(msg, ...) (printf("%s%s:%d: " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 196, 196), __FILE__, __LINE__, ## __VA_ARGS__))
 #define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
@@ -197,7 +198,15 @@ static CsonArena *cson_current_arena = &cson_default_arena;
 
 #define key(kstr) ((CsonArg) {.value.key=cson_str(kstr), .type=CsonArg_Key})
 #define index(istr) ((CsonArg) {.value.index=(size_t)(istr), .type=CsonArg_Index})
-#define cson_get(cson, ...) cson__get(cson, cson_args_array(__VA_ARGS__))
+
+// macros for multi-level searching
+#define cson_get(cson, ...) cson__get(cson, cson_args_array((CsonArg){0}, ##__VA_ARGS__))
+#define cson_get_int(cson, ...) cson__get_int(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_float(cson, ...) cson__get_float(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_bool(cson, ...) cson__get_bool(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_string(cson, ...) cson__get_string(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_array(cson, ...) cson__get_array(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_map(cson, ...) cson__get_map(cson_get(cson, ##__VA_ARGS__))
 
 Cson* cson__get(Cson *cson, CsonArg args[], size_t count);
 
@@ -213,12 +222,13 @@ Cson* cson_new_map(CsonMap *value);
 size_t cson_len(Cson *cson);
 size_t cson_memsize(Cson *cson);
 
-int cson_get_int(Cson *cson);
-double cson_get_float(Cson *cson);
-bool cson_get_bool(Cson *cson);
-CsonStr cson_get_string(Cson *cson);
-CsonArray* cson_get_array(Cson *cson);
-CsonMap* cson_get_map(Cson *cson);
+// extract base types
+int cson__get_int(Cson *cson);
+double cson__get_float(Cson *cson);
+bool cson__get_bool(Cson *cson);
+CsonStr cson__get_string(Cson *cson);
+CsonArray* cson__get_array(Cson *cson);
+CsonMap* cson__get_map(Cson *cson);
 
 bool cson_is_int(Cson *cson);
 bool cson_is_float(Cson *cson);
@@ -504,8 +514,11 @@ Cson* cson_new_null(void)
     return cson;
 }
 
-int cson_get_int(Cson *cson)
-{
+int cson__get_int(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Int]);
+        return 0;
+    }
     if (cson->type != Cson_Int) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Int]);
         return 0;
@@ -513,8 +526,11 @@ int cson_get_int(Cson *cson)
     return cson->value.integer;
 }
 
-double cson_get_float(Cson *cson)
-{
+double cson__get_float(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Float]);
+        return 0.0;
+    }
     if (cson->type != Cson_Float) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Float]);
         return 0.0;
@@ -522,8 +538,11 @@ double cson_get_float(Cson *cson)
     return cson->value.floating;
 }
 
-bool cson_get_bool(Cson *cson)
-{
+bool cson__get_bool(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Bool]);
+        return false;
+    }
     if (cson->type != Cson_Bool) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Bool]);
         return false;
@@ -531,8 +550,11 @@ bool cson_get_bool(Cson *cson)
     return cson->value.boolean;
 }
 
-CsonStr cson_get_string(Cson *cson)
-{
+CsonStr cson__get_string(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_String]);
+        return (CsonStr){0};
+    }
     if (cson->type != Cson_String) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_String]);
         return (CsonStr){0};
@@ -540,8 +562,11 @@ CsonStr cson_get_string(Cson *cson)
     return cson->value.string;
 }
 
-CsonArray* cson_get_array(Cson *cson)
-{
+CsonArray* cson__get_array(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Array]);
+        return NULL;
+    }
     if (cson->type != Cson_Array) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Array]);
         return NULL;
@@ -549,8 +574,11 @@ CsonArray* cson_get_array(Cson *cson)
     return cson->value.array;
 }
 
-CsonMap* cson_get_map(Cson *cson)
-{
+CsonMap* cson__get_map(Cson *cson) {
+    if (cson == NULL) {
+        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Map]);
+        return NULL;
+    }
     if (cson->type != Cson_Map) {
         cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Map]);
         return NULL;
