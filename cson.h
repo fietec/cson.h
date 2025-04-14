@@ -348,7 +348,7 @@ typedef struct{
 
 CsonLexer cson_lex_init(char *buffer, size_t buffer_size, char *filename);
 bool cson_lex_next(CsonLexer *lexer, CsonToken *token);
-bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count);
+bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count, char *file, size_t line);
 bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size);
 void cson_lex_trim_left(CsonLexer *lexer);
 bool cson_lex_find(CsonLexer *lexer, char c);
@@ -357,7 +357,7 @@ bool cson_lex_is_delimeter(char c);
 bool cson_lex_is_int(char *s, char *e);
 bool cson_lex_is_float(char *s, char *e);
 
-#define cson_lex_expect(lexer, token, ...) cson__lex_expect(lexer, token, cson_token_args_array(__VA_ARGS__))
+#define cson_lex_expect(lexer, token, ...) cson__lex_expect(lexer, token, cson_token_args_array(__VA_ARGS__), __FILE__, __LINE__)
 
 /* Parser */
 #define CSON_VALUE_TOKENS CsonToken_ArrayOpen, CsonToken_MapOpen, CsonToken_Int, CsonToken_Float, CsonToken_True, CsonToken_False, CsonToken_Null, CsonToken_String
@@ -1113,14 +1113,14 @@ bool cson_lex_next(CsonLexer *lexer, CsonToken *token)
     return true;
 }
 
-bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count)
+bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count, char *file, size_t line)
 {
     if (lexer == NULL || token == NULL) return false;
     cson_lex_next(lexer, token);
     for (size_t i=0; i<count; ++i){
         if (token->type == types[i]) return true;
     }
-    cson__error_unexpected(token->loc, types, count, token->type, __FILE__, __LINE__);
+    cson__error_unexpected(token->loc, types, count, token->type, file, line);
     return false;  
 }
 
@@ -1390,11 +1390,7 @@ Cson* cson_read(char *filename){
     }
     uint64_t file_size = cson_file_size(filename);
     char *file_content = (char*) calloc(file_size+1, sizeof(*file_content));
-    if (!file_content){
-        fclose(file);
-        cson_error(CsonError_Alloc, "Out of memory!");
-        return NULL;
-    }
+    cson_assert_alloc(file_content);
     fread(file_content, 1, file_size, file);
     fclose(file);
     Cson *cson = cson_parse_buffer(file_content, file_size, filename);
