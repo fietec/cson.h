@@ -14,7 +14,7 @@ The intent of this library is to provide a high-level implementation of a json-l
 
 int main(void)
 {
-	// parse a json file and create a Cson structure from it
+    // parse a json file and create a Cson structure from it
     Cson *cson = cson_read("example.json"); 
     // retreive a Cson struct from the nested tree of values
     Cson *managers = cson_get(cson, key("company"), key("employees"), index(0), key("manager"));
