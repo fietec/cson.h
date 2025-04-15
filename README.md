@@ -2,11 +2,37 @@
 `cson.h` is a header-only C library for parsing and modifying json data.
 
 The intent of this library is to provide a high-level implementation of a json-like data type with all the needed functionality, as well as the ability to automatically parse and write json data.
-For this, `cson` uses the `Cson` struct which may contain any json base type or a `CsonArray`(a dynamic array of `Cson`) or `CsonMap`(a key-based hash map of `Cson`), which are themselves dynamically allocated data structures. All dynamic allocation is done via a custom arena implementation.
-
-Therefore, if you just require a simple streaming json parser, you may be better off looking for something like [yajl](https://github.com/lloyd/yajl). But if you intent to be able to modify parsed json data while using the underlying data structures, `cson.h` may be for you.
 
 **Warning**: This library is still in development and may yet experience critical changes
+
+```c
+#define CSON_IMPLEMENTATION
+#define CSON_WRITE
+#define CSON_PARSE
+#include "cson.h"
+
+
+int main(void)
+{
+	// parse a json file and create a Cson structure from it
+    Cson *cson = cson_read("example.json"); 
+    // retreive a Cson struct from the nested tree of values
+    Cson *managers = cson_get(cson, key("company"), key("employees"), index(0), key("manager"));
+    // extract the CsonMap from the Cson to have access to the CsonMap functions
+    CsonMap *map = cson_get_map(managers);
+    // print the current status of the map to the console
+    cson_map_print(map);
+    // remove the field with the key "id"
+    cson_map_remove(map, cson_str("id"));
+    // print the new status of the map
+    cson_map_print(map);
+    // write the root object to a file 
+    cson_write(cson, "out.json");
+    // free the memory of the default arena
+    cson_free();
+    return 0;
+}
+```
 
 ## How to build
 `cson.h` is an [stb-style](https://github.com/nothings/stb/blob/master/docs/stb_howto.txt) library, which means a single header file and no further dependencies. Define `CSON_IMPLEMENTATION` to access the function implementations, otherwise `cson.h` will act as a regular header-file.
@@ -18,10 +44,9 @@ Writing and parsing are for modularity's sake not included by default. To access
 #include "cson.h"
 ```
 
-## How to use 
-If you want to skip the boring documentation, take a look at the [examples](#examples).
+## Documentation
 ### Dynamic allocation
-All data structures are allocated by a custom arena implementation:
+All data structures are allocated by a custom arena implementation (inspired by Tsoding's [arena](https://github.com/tsoding/arena)):
 ```c
 struct CsonArena{
     CsonRegion *first, *last;
@@ -143,6 +168,7 @@ CsonArray* cson_array_new(void);
 CsonError cson_array_push(CsonArray *array, Cson *value);
 CsonError cson_array_pop(CsonArray *array, size_t index);
 Cson* cson_array_get(CsonArray *array, size_t index);
+Cson* cson_array_get_last(CsonArray *array);
 
 size_t cson_array_memsize(CsonArray *array);
 ```
@@ -262,33 +288,5 @@ bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size);
 ```
 To learn how to use the lexer, refer to [jexc.h](https://github.com/fietec/jexc.h), which is a standalone version of the `CsonLexer`.
 
-### Examples
-#### Parsing and modification
-```c
-#define CSON_IMPLEMENTATION
-#define CSON_WRITE
-#define CSON_PARSE
-#include "cson.h"
-
-
-int main(void)
-{
-	// parse a json file and create a Cson structure from it
-    Cson *cson = cson_read("example.json"); 
-    // retreive a Cson struct from the nested tree of values
-    Cson *managers = cson_get(cson, key("company"), key("employees"), index(0), key("manager"));
-    // extract the CsonMap from the Cson to have access to the CsonMap functions
-    CsonMap *map = cson_get_map(managers);
-    // print the current status of the map to the console
-    cson_map_print(map);
-    // remove the field with the key "id"
-    cson_map_remove(map, cson_str("id"));
-    // print the new status of the map
-    cson_map_print(map);
-    // write the root object to a file 
-    cson_write(cson, "out.json");
-    // free the memory of the default arena
-    cson_free();
-    return 0;
-}
-```
+## License
+This project is licensed under the MIT License. View the `LICENSE` file for details.
