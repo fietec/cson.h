@@ -222,7 +222,6 @@ Cson* cson_new_map(CsonMap *value);
 size_t cson_len(Cson *cson);
 size_t cson_memsize(Cson *cson);
 
-// extract base types
 int cson__get_int(Cson *cson);
 double cson__get_float(Cson *cson);
 bool cson__get_bool(Cson *cson);
@@ -394,7 +393,7 @@ Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
             CsonArray *arr = next->value.array;
             next = cson_array_get(arr, arg.value.index);
             if (next == NULL){
-                cson_error(CsonError_IndexError, "Index out of bounds for array of size %zu: %zu", arr->size, arg.value.index);
+                cson_error(CsonError_IndexError, "Index out of bounds for array of size %u: %u", arr->size, arg.value.index);
                 return NULL;
             }
             continue;
@@ -818,7 +817,7 @@ void* cson_alloc(CsonArena *arena, size_t size)
     }
     CsonRegion *last = arena->last;
     if (last->size + all_size > last->capacity){
-        cson_assert(arena->last == NULL, "Invalid arena state!: size:%zu, capacity:%zu, next:%p", last->size, last->capacity, last->next);
+        cson_assert(arena->last == NULL, "Invalid arena state!: size:%u, capacity:%u, next:%p", last->size, last->capacity, last->next);
         size_t capacity = (all_size > default_capacity)? all_size:default_capacity;
         last->next = cson__new_region(capacity);
         arena->last = last->next;
@@ -1159,10 +1158,10 @@ bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size)
             r++;
             w++;
         }
-        sprintf(buffer, "%.*s\0", w-temp_buffer+1, temp_buffer);
+        sprintf(buffer, "%.*s", w-temp_buffer+1, temp_buffer);
     }
     else{
-        sprintf(buffer, "%.*s\0", token->len, token->t_start);
+        sprintf(buffer, "%.*s", token->len, token->t_start);
     }
     return true;
 }
@@ -1255,13 +1254,20 @@ bool cson__parse_map(CsonMap *map, CsonLexer *lexer)
     if (map == NULL || lexer == NULL) return false;
     CsonToken token;
     while (true){
-        if (!cson_lex_expect(lexer, &token, CsonToken_String, CsonToken_MapClose)) return false;
-        if (token.type == CsonToken_MapClose && map->size > 0){
-            if (map->size > 0){
-                cson_error_unexpected(token.loc, token.type, CSON_VALUE_TOKENS);
+        cson_lex_next(lexer, &token);
+        switch (token.type){
+            case CsonToken_String: break;
+            case CsonToken_MapClose:{
+                if (map->size > 0){
+                    cson_error_unexpected(token.loc, token.type, CSON_VALUE_TOKENS);
+                    return false;
+                }
+                return true;
+            }
+            default: {
+                cson_error_unexpected(token.loc, token.type, CsonToken_String, CsonToken_MapClose);
                 return false;
             }
-            return true;
         }
         size_t key_size = token.len+1;
         char key_buffer[key_size];
@@ -1271,10 +1277,14 @@ bool cson__parse_map(CsonMap *map, CsonLexer *lexer)
         if (!cson_lex_expect(lexer, &token, CSON_VALUE_TOKENS)) return false;
         if (!cson__parse_value(&cson, lexer, &token)) return false;
         cson_map_insert(map, cson_str_new(key_buffer), cson);
-        if (!cson_lex_expect(lexer, &token, CsonToken_Sep, CsonToken_MapClose)) return false;
+        if (!cson_lex_next(lexer, &token)) return false;
         switch (token.type){
-            case CsonToken_Sep:break;
-            case CsonToken_MapClose:return true;
+            case CsonToken_Sep: break;
+            case CsonToken_MapClose: return true;
+            default: {
+                cson_error_unexpected(token.loc, token.type, CsonToken_Sep, CsonToken_MapClose);
+                return false;
+            }
         }
     }
 }
@@ -1295,10 +1305,14 @@ bool cson__parse_array(CsonArray *array, CsonLexer *lexer)
         Cson *cson = NULL;
         if (!cson__parse_value(&cson, lexer, &token)) return false;
         cson_array_push(array, cson);
-        if (!cson_lex_expect(lexer, &token, CsonToken_Sep, CsonToken_ArrayClose)) return false;
+        if (!cson_lex_next(lexer, &token)) return false;
         switch (token.type){
             case CsonToken_Sep: break;
             case CsonToken_ArrayClose: return true;
+            default: {
+                cson_error_unexpected(token.loc, token.type, CsonToken_Sep, CsonToken_ArrayClose);
+                return false;
+            }
         }
     }
     return false;
@@ -1339,6 +1353,10 @@ bool cson__parse_value(Cson **cson, CsonLexer *lexer, CsonToken *token)
         case CsonToken_Null:{
             *cson = cson_new_null();
         }break;
+        default: {
+            cson_error_unexpected(token->loc, token->type, CSON_VALUE_TOKENS);
+            return false;
+        }
     }
     return true;
 }
@@ -1398,5 +1416,4 @@ Cson* cson_read(char *filename){
     return cson;
 }
 #endif // CSON_PARSE
-
 #endif // CSON_IMPLEMENTATION
