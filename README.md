@@ -14,18 +14,16 @@ The intent of this library is to provide a high-level implementation of a json-l
 
 int main(void)
 {
-    // parse a json file and create a Cson structure from it
+    // parse a json file and create a Cson structure
     Cson *cson = cson_read("example.json"); 
     // retreive a Cson struct from the nested tree of values
     Cson *managers = cson_get(cson, key("company"), key("employees"), index(0), key("manager"));
-    // extract the CsonMap from the Cson to have access to the CsonMap functions
-    CsonMap *map = cson_get_map(managers);
     // print the current status of the map to the console
-    cson_map_print(map);
+    cson_print(managers);
     // remove the field with the key "id"
-    cson_map_remove(map, cson_str("id"));
+    cson_map_remove(managers, cson_str("id"));
     // print the new status of the map
-    cson_map_print(map);
+    cson_print(managers);
     // write the root object to a file 
     cson_write(cson, "out.json");
     // free the memory of the default arena
@@ -165,12 +163,12 @@ A simple dynamic array of `Cson` values.
 Functions:
 ```c 
 CsonArray* cson_array_new(void);
-CsonError cson_array_push(CsonArray *array, Cson *value);
-CsonError cson_array_pop(CsonArray *array, size_t index);
-Cson* cson_array_get(CsonArray *array, size_t index);
-Cson* cson_array_get_last(CsonArray *array);
+CsonError cson_array_push(Cson *array, Cson *value);
+CsonError cson_array_pop(Cson *array, size_t index);
+Cson* cson_array_get(Cson *array, size_t index);
+Cson* cson_array_get_last(Cson *array);
 
-size_t cson_array_memsize(CsonArray *array);
+size_t cson_array_memsize(Cson *array);
 ```
 
 #### CsonMap
@@ -192,11 +190,12 @@ A simple hash map of `CsonStr` - `Cson` value-key pairs.
 Functions:
 ```c
 CsonMap* cson_map_new(void);
-CsonError cson_map_insert(CsonMap *map, CsonStr key, Cson *value);
-CsonError cson_map_remove(CsonMap *map, CsonStr key);
-Cson* cson_map_get(CsonMap *map, CsonStr key);
+CsonError cson_map_insert(Cson *map, CsonStr key, Cson *value);
+CsonError cson_map_remove(Cson *map, CsonStr key);
+Cson* cson_map_get(Cson *map, CsonStr key);
+Cson* cson_map_keys(Cson *map); // returns CsonArray of keys
 
-size_t cson_map_memsize(CsonMap *map);
+size_t cson_map_memsize(Cson *map);
 ```
 
 #### CsonStr
@@ -212,6 +211,7 @@ Functions:
 ```c
 CsonStr cson_str(char *cstr);
 CsonStr cson_str_new(char *cstr); // allocates new string
+CsonStr cson_str_dup(CsonStr str); // allocates new string
 uint32_t cson_str_hash(CsonStr str);
 bool cson_str_equals(CsonStr a, CsonStr b);
 
