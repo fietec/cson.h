@@ -35,6 +35,27 @@
 #include <ctype.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+    #define _CSON_EXPORT __declspec(dllexport)
+    #define _CSON_IMPORT __declspec(dllimport)
+#elif __GNUC__ >= 4
+    #define _CSON_EXPORT __attribute__((visibility("default")))
+    #define _CSON_IMPORT __attribute__((visibility("default")))
+#else
+    #define _CSON_EXPORT
+    #define _CSON_IMPORT
+#endif
+
+#ifdef CSON_SHARED
+    #ifdef CSON_EXPORTS
+        #define LCSON _CSON_EXPORT
+    #else
+        #define LCSON _CSON_IMPORT
+    #endif // CSON_EXPORTS
+#else
+    #define LCSON
+#endif // CSON_SHARED
+
 #define CSON_DEF_ARRAY_CAPACITY   16
 #define CSON_ARRAY_MUL_F           2
 #define CSON_MAP_CAPACITY         16
@@ -194,97 +215,92 @@ struct CsonRegion{
     uintptr_t data[];
 };
 
-static CsonArena cson_default_arena = {0};
-static CsonArena *cson_current_arena = &cson_default_arena;
+extern CsonArena *cson_current_arena;
 
 #define key(kstr) ((CsonArg) {.value.key=cson_str(kstr), .type=CsonArg_Key})
 #define index(istr) ((CsonArg) {.value.index=(size_t)(istr), .type=CsonArg_Index})
 
-#define cson__to_int(cson)    (cson)->value.int
-#define cson__to_float(cson)  (cson)->value.float
-#define cson__to_bool(cson)   (cson)->value.bool
-#define cson__to_string(cson) (cson)->value.string
-#define cson__to_array(cson)  (cson)->value.array
-#define cson__to_map(cson)    (cson)->value.map
-
 // macros for multi-level searching
 #define cson_get(cson, ...) cson__get(cson, cson_args_array((CsonArg){0}, ##__VA_ARGS__))
-#define cson_get_int(cson, ...) cson__get_int(cson_get(cson, ##__VA_ARGS__))
-#define cson_get_float(cson, ...) cson__get_float(cson_get(cson, ##__VA_ARGS__))
-#define cson_get_bool(cson, ...) cson__get_bool(cson_get(cson, ##__VA_ARGS__))
-#define cson_get_string(cson, ...) cson__get_string(cson_get(cson, ##__VA_ARGS__))
-#define cson_get_array(cson, ...) cson__get_array(cson_get(cson, ##__VA_ARGS__))
-#define cson_get_map(cson, ...) cson__get_map(cson_get(cson, ##__VA_ARGS__))
+#define cson_get_int(out, cson, ...) cson__get_int((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_float(out, cson, ...) cson__get_float((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_bool(out, cson, ...) cson__get_bool((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_string(out, cson, ...) cson__get_string((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_array(out, cson, ...) cson__get_array((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_map(out, cson, ...) cson__get_map((out), cson_get(cson, ##__VA_ARGS__))
 
-Cson* cson__get(Cson *cson, CsonArg args[], size_t count);
+#define cson__to_int(cson) (cson)->value.integer
+#define cson__to_float(cson) (cson)->value.floating
+#define cson__to_bool(cson) (cson)->value.boolean
+#define cson__to_string(cson) (cson)->value.string
+#define cson__to_array(cson) (cson)->value.array
+#define cson__to_map(cson) (cson)->value.map
 
-Cson* cson_new(void);
-Cson* cson_new_int(int32_t value);
-Cson* cson_new_float(double value);
-Cson* cson_new_bool(bool value);
-Cson* cson_new_string(CsonStr value);
-Cson* cson_new_cstring(char *cstr);
-Cson* cson_new_array(CsonArray *value);
-Cson* cson_new_map(CsonMap *value);
+LCSON Cson* cson_new(void);
+LCSON Cson* cson_new_int(int32_t value);
+LCSON Cson* cson_new_float(double value);
+LCSON Cson* cson_new_bool(bool value);
+LCSON Cson* cson_new_string(CsonStr value);
+LCSON Cson* cson_new_cstring(char *cstr);
+LCSON Cson* cson_new_array(CsonArray *value);
+LCSON Cson* cson_new_map(CsonMap *value);
 
-size_t cson_len(Cson *cson);
-size_t cson_memsize(Cson *cson);
+LCSON size_t cson_len(Cson *cson);
+LCSON size_t cson_memsize(Cson *cson);
+ 
+LCSON Cson* cson__get(Cson *cson, CsonArg args[], size_t count);
+LCSON bool cson__get_int(int64_t *out, Cson *cson);
+LCSON bool cson__get_float(double *out, Cson *cson);
+LCSON bool cson__get_bool(bool *out, Cson *cson);
+LCSON bool cson__get_string(CsonStr *out, Cson *cson);
+LCSON bool cson__get_array(CsonArray **out, Cson *cson);
+LCSON bool cson__get_map(CsonMap **out, Cson *cson);
+ 
+LCSON bool cson_is_int(Cson *cson);
+LCSON bool cson_is_float(Cson *cson);
+LCSON bool cson_is_bool(Cson *cson);
+LCSON bool cson_is_string(Cson *cson);
+LCSON bool cson_is_array(Cson *cson);
+LCSON bool cson_is_map(Cson *cson);
+LCSON bool cson_is_null(Cson *cson);
+ 
+LCSON Cson* cson_array_new(void);
+LCSON CsonError cson_array_push(Cson *array, Cson *value);
+LCSON CsonError cson_array_pop(Cson *array, size_t index);
+LCSON Cson* cson_array_get(Cson *array, size_t index);
+LCSON Cson* cson_array_get_last(Cson *array);
+LCSON size_t cson_array_memsize(Cson *array);
 
-int64_t cson__get_int(Cson *cson);
-double cson__get_float(Cson *cson);
-bool cson__get_bool(Cson *cson);
-CsonStr cson__get_string(Cson *cson);
-CsonArray* cson__get_array(Cson *cson);
-CsonMap* cson__get_map(Cson *cson);
+LCSON Cson* cson_map_new(void);
+LCSON CsonError cson_map_insert(Cson *map, CsonStr key, Cson *value);
+LCSON CsonError cson_map_remove(Cson *map, CsonStr key);
+LCSON Cson* cson_map_get(Cson *map, CsonStr key);
+LCSON Cson *cson_map_keys(Cson *map);
+LCSON size_t cson_map_memsize(Cson *map);
 
-bool cson_is_int(Cson *cson);
-bool cson_is_float(Cson *cson);
-bool cson_is_bool(Cson *cson);
-bool cson_is_string(Cson *cson);
-bool cson_is_array(Cson *cson);
-bool cson_is_map(Cson *cson);
-bool cson_is_null(Cson *cson);
-
-Cson* cson_array_new(void);
-CsonError cson_array_push(Cson *array, Cson *value);
-CsonError cson_array_pop(Cson *array, size_t index);
-Cson* cson_array_get(Cson *array, size_t index);
-Cson* cson_array_get_last(Cson *array);
-size_t cson_array_memsize(Cson *array);
-
-Cson* cson_map_new(void);
-CsonError cson_map_insert(Cson *map, CsonStr key, Cson *value);
-CsonError cson_map_remove(Cson *map, CsonStr key);
-Cson* cson_map_get(Cson *map, CsonStr key);
-Cson *cson_map_keys(Cson *map);
-size_t cson_map_memsize(Cson *map);
-
-CsonRegion* cson__new_region(size_t capacity);
-void* cson_alloc(CsonArena *arena, size_t size);
-void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size);
-void cson_free();
-void cson_swap_arena(CsonArena *arena);
-void cson_swap_and_free_arena(CsonArena *arena);
+#define cson_alloc(size) cson__alloc(cson_current_arena, (size))
+LCSON CsonRegion* cson__new_region(size_t capacity);
+LCSON void* cson__alloc(CsonArena *arena, size_t size);
+LCSON void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size);
+LCSON void cson_free();
+LCSON void cson_swap_arena(CsonArena *arena);
+LCSON void cson_swap_and_free_arena(CsonArena *arena);
 
 #define cson_str(string) ((CsonStr){.value=(string), .len=strlen(string)})
-CsonStr cson_str_new(char *cstr);
-CsonStr cson_str_dup(CsonStr str);
-uint32_t cson_str_hash(CsonStr str);
-bool cson_str_equals(CsonStr a, CsonStr b);
-size_t cson_str_memsize(CsonStr str);
+LCSON CsonStr cson_str_new(char *cstr);
+LCSON CsonStr cson_str_dup(CsonStr str);
+LCSON uint32_t cson_str_hash(CsonStr str);
+LCSON bool cson_str_equals(CsonStr a, CsonStr b);
+LCSON size_t cson_str_memsize(CsonStr str);
 
-#ifdef CSON_WRITE
 #define CSON_PRINT_INDENT 4
 #define cson_print(cson) do{if (cson!=NULL){cson_fprint(cson, stdout, 0); putchar('\n');}else{printf("-null-\n");}} while (0)
 #define cson_array_print(array) do{if (array!=NULL){cson_array_fprint(array, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
 #define cson_map_print(map) do{if (map!=NULL){cson_map_fprint(map, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
-bool cson_write(Cson *json, char *filename);
-void cson_fprint(Cson *value, FILE *file, size_t indent);
-void cson_array_fprint(CsonArray *array, FILE *file, size_t indent);
-void cson_map_fprint(CsonMap *map, FILE *file, size_t indent);
-#endif // CSON_WRITE
-
-#ifdef CSON_PARSE
+LCSON bool cson_write(Cson *json, char *filename);
+LCSON void cson_fprint(Cson *value, FILE *file, size_t indent);
+LCSON void cson_array_fprint(CsonArray *array, FILE *file, size_t indent);
+LCSON void cson_map_fprint(CsonMap *map, FILE *file, size_t indent);
 
 /* Lexer */
 #define cson_lex_is_whitespace(c) ((c == ' ' || c == '\n' || c == '\t'))
@@ -355,16 +371,16 @@ typedef struct{
     CsonLoc loc;
 } CsonLexer;
 
-CsonLexer cson_lex_init(char *buffer, size_t buffer_size, char *filename);
-bool cson_lex_next(CsonLexer *lexer, CsonToken *token);
-bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count, char *file, size_t line);
-bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size);
-void cson_lex_trim_left(CsonLexer *lexer);
-bool cson_lex_find(CsonLexer *lexer, char c);
-void cson_lex_set_token(CsonToken *token, CsonTokenType type, char *t_start, char *t_end, CsonLoc loc);
-bool cson_lex_is_delimeter(char c);
-bool cson_lex_is_int(char *s, char *e);
-bool cson_lex_is_float(char *s, char *e);
+LCSON CsonLexer cson_lex_init(char *buffer, size_t buffer_size, char *filename);
+LCSON bool cson_lex_next(CsonLexer *lexer, CsonToken *token);
+LCSON bool cson__lex_expect(CsonLexer *lexer, CsonToken *token, CsonTokenType types[], size_t count, char *file, size_t line);
+LCSON bool cson_lex_extract(CsonToken *token, char *buffer, size_t buffer_size);
+LCSON void cson_lex_trim_left(CsonLexer *lexer);
+LCSON bool cson_lex_find(CsonLexer *lexer, char c);
+LCSON void cson_lex_set_token(CsonToken *token, CsonTokenType type, char *t_start, char *t_end, CsonLoc loc);
+LCSON bool cson_lex_is_delimeter(char c);
+LCSON bool cson_lex_is_int(char *s, char *e);
+LCSON bool cson_lex_is_float(char *s, char *e);
 
 #define cson_lex_expect(lexer, token, ...) cson__lex_expect(lexer, token, cson_token_args_array(__VA_ARGS__), __FILE__, __LINE__)
 
@@ -372,18 +388,20 @@ bool cson_lex_is_float(char *s, char *e);
 #define CSON_VALUE_TOKENS CsonToken_ArrayOpen, CsonToken_MapOpen, CsonToken_Int, CsonToken_Float, CsonToken_True, CsonToken_False, CsonToken_Null, CsonToken_String
 #define cson_parse(buffer, buffer_size) cson_parse_buffer(buffer, buffer_size, "")
 #define cson_error_unexpected(loc, actual, ...) cson__error_unexpected(loc, cson_token_args_array(__VA_ARGS__), actual, __FILE__, __LINE__)
-void cson__error_unexpected(CsonLoc loc, CsonTokenType expected[], size_t expected_count, CsonTokenType actual, char *filename, size_t line);
-Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename);
-Cson* cson_read(char *filename);
-bool cson__parse_map(Cson *map, CsonLexer *lexer);
-bool cson__parse_array(Cson *array, CsonLexer *lexer);
-bool cson__parse_value(Cson **cson, CsonLexer *lexer, CsonToken *token);
-#endif // CSON_PARSE
+LCSON void cson__error_unexpected(CsonLoc loc, CsonTokenType expected[], size_t expected_count, CsonTokenType actual, char *filename, size_t line);
+LCSON Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename);
+LCSON Cson* cson_read(char *filename);
+LCSON bool cson__parse_map(Cson *map, CsonLexer *lexer);
+LCSON bool cson__parse_array(Cson *array, CsonLexer *lexer);
+LCSON bool cson__parse_value(Cson **cson, CsonLexer *lexer, CsonToken *token);
 
 #endif // _CSON_H
 
 /* cson.c */
 #ifdef CSON_IMPLEMENTATION
+
+static CsonArena cson_default_arena = {0};
+CsonArena *cson_current_arena = &cson_default_arena;
 
 Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
 {
@@ -445,14 +463,14 @@ size_t cson_memsize(Cson *cson)
 
 Cson* cson_new(void)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     return cson;
 }
 
 Cson* cson_new_int(int32_t value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Int;
     cson->value.integer = value;
@@ -461,7 +479,7 @@ Cson* cson_new_int(int32_t value)
 
 Cson* cson_new_float(double value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Float;
     cson->value.floating = value;
@@ -470,7 +488,7 @@ Cson* cson_new_float(double value)
 
 Cson* cson_new_bool(bool value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Bool;
     cson->value.boolean = value;
@@ -479,7 +497,7 @@ Cson* cson_new_bool(bool value)
 
 Cson* cson_new_string(CsonStr value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_String;
     cson->value.string = cson_str_new(value.value);
@@ -488,7 +506,7 @@ Cson* cson_new_string(CsonStr value)
 
 Cson* cson_new_cstring(char *cstr)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_String;
     cson->value.string = cson_str_new(cstr);
@@ -497,7 +515,7 @@ Cson* cson_new_cstring(char *cstr)
 
 Cson* cson_new_array(CsonArray *value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Array;
     cson->value.array = value;
@@ -506,7 +524,7 @@ Cson* cson_new_array(CsonArray *value)
 
 Cson* cson_new_map(CsonMap *value)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Map;
     cson->value.map = value;
@@ -515,86 +533,53 @@ Cson* cson_new_map(CsonMap *value)
 
 Cson* cson_new_null(void)
 {
-    Cson *cson = cson_alloc(cson_current_arena, sizeof(*cson));
+    Cson *cson = cson_alloc(sizeof(*cson));
     cson_assert_alloc(cson);
     cson->type = Cson_Null;
     cson->value.null = NULL;
     return cson;
 }
 
-int64_t cson__get_int(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Int]);
-        return 0;
-    }
-    if (cson->type != Cson_Int) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Int]);
-        return 0;
-    }
-    return cson->value.integer;
+bool cson__get_int(int64_t *out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_Int) return false;
+    *out = cson->value.integer;
+    return true;
 }
 
-double cson__get_float(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Float]);
-        return 0.0;
-    }
-    if (cson->type != Cson_Float) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Float]);
-        return 0.0;
-    }
-    return cson->value.floating;
+bool cson__get_float(double *out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_Float) return false;
+    *out = cson->value.floating;
+    return true;
 }
 
-bool cson__get_bool(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Bool]);
-        return false;
-    }
-    if (cson->type != Cson_Bool) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Bool]);
-        return false;
-    }
-    return cson->value.boolean;
+bool cson__get_bool(bool *out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_Bool) return false;
+    *out = cson->value.boolean;
+    return true;
 }
 
-CsonStr cson__get_string(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_String]);
-        return (CsonStr){0};
-    }
-    if (cson->type == Cson_Null){
-        return (CsonStr) {.value=NULL, .len=0};
-    }
-    if (cson->type != Cson_String) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_String]);
-        return (CsonStr){0};
-    }
-    return cson->value.string;
+bool cson__get_string(CsonStr *out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_String) return false;
+    *out = cson->value.string;
+    return true;
 }
 
-CsonArray* cson__get_array(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Array]);
-        return NULL;
-    }
-    if (cson->type != Cson_Array) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Array]);
-        return NULL;
-    }
-    return cson->value.array;
+bool cson__get_array(CsonArray **out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_Array) return false;
+    *out = cson->value.array;
+    return true;
 }
 
-CsonMap* cson__get_map(Cson *cson) {
-    if (cson == NULL) {
-        cson_error(CsonError_InvalidParam, "Cannot extract %s from null pointer!", CsonTypeStrings[Cson_Map]);
-        return NULL;
-    }
-    if (cson->type != Cson_Map) {
-        cson_error(CsonError_InvalidType, "Cannot convert %s to %s!", CsonTypeStrings[cson->type], CsonTypeStrings[Cson_Map]);
-        return NULL;
-    }
-    return cson->value.map;
+bool cson__get_map(CsonMap **out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_Map) return false;
+    *out = cson->value.map;
+    return true;
 }
 
 bool cson_is_int(Cson *cson)
@@ -643,7 +628,7 @@ bool cson_is_null(Cson *cson)
 
 Cson* cson_array_new(void)
 {
-    CsonArray *array = cson_alloc(cson_current_arena, sizeof(*array) + CSON_DEF_ARRAY_CAPACITY*sizeof(Cson*));
+    CsonArray *array = cson_alloc(sizeof(*array) + CSON_DEF_ARRAY_CAPACITY*sizeof(Cson*));
     cson_assert_alloc(array);
     array->size = 0;
     array->capacity = CSON_DEF_ARRAY_CAPACITY;
@@ -705,7 +690,7 @@ size_t cson_array_memsize(Cson *array)
 
 Cson* cson_map_new(void)
 {
-    CsonMap *map = cson_alloc(cson_current_arena, sizeof(*map) + CSON_MAP_CAPACITY*sizeof(CsonMapItem*));
+    CsonMap *map = cson_alloc(sizeof(*map) + CSON_MAP_CAPACITY*sizeof(CsonMapItem*));
     cson_assert_alloc(map);
     map->size = 0;
     map->capacity = CSON_MAP_CAPACITY;
@@ -716,7 +701,7 @@ Cson* cson_map_new(void)
 
 CsonMapItem* cson_map_item_new(CsonStr key, Cson *value)
 {
-    CsonMapItem *item = cson_alloc(cson_current_arena, sizeof(*item));
+    CsonMapItem *item = cson_alloc(sizeof(*item));
     cson_assert_alloc(item);
     item->key = key;
     item->value = value;
@@ -843,7 +828,7 @@ void cson__free(CsonArena *arena)
     arena->last = NULL;
 }
 
-void* cson_alloc(CsonArena *arena, size_t size)
+void* cson__alloc(CsonArena *arena, size_t size)
 {
     if (arena == NULL) return NULL;
     size_t all_size = (size + sizeof(uintptr_t) - 1) / sizeof(uintptr_t);
@@ -871,7 +856,7 @@ void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_
 {
     if (arena == NULL) return NULL;
     if (old_size >= new_size) return old_ptr;
-    void *new_ptr = cson_alloc(arena, new_size);
+    void *new_ptr = cson__alloc(arena, new_size);
     cson_assert_alloc(new_ptr);
     char *rc = (char*) old_ptr;
     char *wc = (char*) new_ptr;
@@ -884,7 +869,7 @@ void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_
 void* cson_dup(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size)
 {
     if (arena == NULL) return NULL;
-    void *new_ptr = cson_alloc(arena, new_size);
+    void *new_ptr = cson__alloc(arena, new_size);
     cson_assert_alloc(new_ptr);
     char *rc = (char*) old_ptr;
     char *wc = (char*) new_ptr;
@@ -980,7 +965,6 @@ size_t cson_str_memsize(CsonStr string)
     return total;
 }
 
-#ifdef CSON_WRITE
 
 #define cson_print_indent(file, indent) (fprintf((file), "%*s", (indent)*CSON_PRINT_INDENT, ""))
 
@@ -1058,10 +1042,6 @@ bool cson_write(Cson *json, char *filename)
     fclose(file);
     return true;
 }
-
-#endif // CSON_WRITE
-
-#ifdef CSON_PARSE
 
 CsonLexer cson_lex_init(char *buffer, size_t buffer_size, char *filename)
 {
@@ -1451,5 +1431,4 @@ Cson* cson_read(char *filename){
     free(file_content);
     return cson;
 }
-#endif // CSON_PARSE
 #endif // CSON_IMPLEMENTATION

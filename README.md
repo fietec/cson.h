@@ -34,13 +34,11 @@ int main(void)
 
 ## How to build
 `cson.h` is an [stb-style](https://github.com/nothings/stb/blob/master/docs/stb_howto.txt) library, which means a single header file and no further dependencies. Define `CSON_IMPLEMENTATION` to access the function implementations, otherwise `cson.h` will act as a regular header-file.
-Writing and parsing are for modularity's sake not included by default. To access them, define `CSON_WRITE` and `CSON_PARSE` respectively:
 ```c 
-#define CSON_WRITE
-#define CSON_PARSE
 #define CSON_IMPLEMENTATION
 #include "cson.h"
 ```
+When compiling into a shared object file (`.so` or `.dll`), make sure to define `CSON_SHARED` and depending on whether the functions should be exported `CSON_EXPORTS`.
 
 ## Documentation
 ### Dynamic allocation
@@ -60,7 +58,7 @@ struct CsonRegion{
 ```
 Functions:
 ```c
-void* cson_alloc(CsonArena *arena, size_t size);
+void* cson_alloc(size_t size);
 void* cson_realloc(CsonArena *arena, void *old_ptr, size_t old_size, size_t new_size);
 void cson_free(); // free the default arena
 void cson__free(Cson Arena *arena);
@@ -107,12 +105,12 @@ bool cson_is_map(Cson *cson);
 bool cson_is_null(Cson *cson);
 
 // simple wrappers for retreiving the stored value (macros), va-args can be empty
-int cson_get_int(Cson *cson, (CsonArg) ...);
-double cson_get_float(Cson *cson, (CsonArg) ...);
-bool cson_get_bool(Cson *cson, (CsonArg) ...);
-CsonStr cson_get_string(Cson *cson, (CsonArg) ...);
-CsonArray* cson_get_array(Cson *cson, (CsonArg) ...);
-CsonMap* cson_get_map(Cson *cson, (CsonArg) ...);
+bool cson_get_int(int64_t *out, Cson *cson, (CsonArg) ...);
+bool cson_get_float(double *out, Cson *cson, (CsonArg) ...);
+bool cson_get_bool(bool *out, Cson *cson, (CsonArg) ...);
+bool cson_get_string(CsonStr *out, Cson *cson, (CsonArg) ...);
+bool cson_get_array(CsonArray **out, Cson *cson, (CsonArg) ...);
+bool cson_get_map(CsonMap **out, Cson *cson, (CsonArg) ...);
 
 Cson* cson_get(Cson *cson, (CsonArg)...); // macro
 
@@ -145,8 +143,10 @@ cson_print(house2);
 or using the `cson_get_<type>` wrappers to access the underlying data types:
 ```c 
 Cson *city = cson_read("city.json");
-int stories = cson_get_int(city, key("houses"), index(1), key("stories"));
-printf("%d\n", stories);
+int64_t stories;
+if (cson_get_int(&stories, city, key("houses"), index(1), key("stories"))){
+    printf("%I64d\n", stories);
+}
 ```
 > 3
 
