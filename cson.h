@@ -70,8 +70,13 @@
 #define cson_args_array(...) (typeof(__VA_ARGS__)[]){cson_drop_first(__VA_ARGS__)}, cson_args_len(__VA_ARGS__)-1
 
 #define cson_info(msg, ...) (printf("%s%s:%d: " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 196, 196), __FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
-#define cson_error(error, msg, ...) (fprintf(stderr, "%s%s:%d [ERROR] (%s): " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 0, 0), __FILE__, __LINE__, (CsonErrorStrings[(error)]), ## __VA_ARGS__))
+#ifdef CSON_ERRORS
+    #define cson_warning(msg, ...) (fprintf(stderr, "%s%s:%d: [WARNING] " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 64, 0), __FILE__, __LINE__, ## __VA_ARGS__))
+    #define cson_error(error, msg, ...) (fprintf(stderr, "%s%s:%d [ERROR] (%s): " msg CSON_ANSI_END "\n", cson_ansi_rgb(196, 0, 0), __FILE__, __LINE__, (CsonErrorStrings[(error)]), ## __VA_ARGS__))
+#else
+    #define cson_warning(msg, ...) 
+    #define cson_error(error, msg, ...)
+#endif // CSON_ERRORS
 
 #define cson_assert(state, msg, ...) do{if (!(state)) {cson_error(0, msg, ##__VA_ARGS__); exit(1);}} while (0)
 #define cson_assert_alloc(alloc) cson_assert((alloc)!=NULL, "Memory allocation failed! (need more RAM :/)")
@@ -584,44 +589,37 @@ bool cson__get_map(CsonMap **out, Cson *cson)
 
 bool cson_is_int(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Int;
+    return cson != NULL && cson->type == Cson_Int;
 }
 
 bool cson_is_float(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Float;
+    return cson != NULL && cson->type == Cson_Float;
 }
 
 bool cson_is_bool(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Bool;
+    return cson != NULL && cson->type == Cson_Bool;
 }
 
 bool cson_is_string(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_String;
+    return cson != NULL && cson->type == Cson_String;
 }
 
 bool cson_is_array(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Array;
+    return cson != NULL && cson->type == Cson_Array;
 }
 
 bool cson_is_map(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Map;
+    return cson != NULL && cson->type == Cson_Map;
 }
 
 bool cson_is_null(Cson *cson)
 {
-    if (cson == NULL) return false;
-    return cson->type == Cson_Null;
+    return cson != NULL && cson->type == Cson_Null;
 }
 
 /* Array implementation */
