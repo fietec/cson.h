@@ -7,8 +7,6 @@ The intent of this library is to provide a high-level implementation of a json-l
 
 ```c
 #define CSON_IMPLEMENTATION
-#define CSON_WRITE
-#define CSON_PARSE
 #include "cson.h"
 
 
@@ -65,7 +63,8 @@ void cson__free(Cson Arena *arena);
 void cson_swap_arena(CsonArena *arena);
 void cson_swap_and_free_arena(CsonArena *arena);
 ```
-By default, `cson.h` always uses the `cson_default_arena` to allocate its memory. To change the currently active `CsonArena`, swap it to a custom defined arena, using `cson_swap_arena` or to also free the previous `cson_swap_and_free_arena`.
+By default, `cson.h` uses the `cson_default_arena` to allocate its memory. To change the currently active `CsonArena`, swap it to a custom defined arena, using `cson_swap_arena` or to also free the previous `cson_swap_and_free_arena`.
+
 ### Data Structures
 #### Cson
 ```c 
@@ -205,7 +204,7 @@ struct CsonStr{
     size_t len;
 };
 ```
-A string wrapper for storing strings. (yet to decide if this is a good idea)
+A string wrapper for storing strings.
 
 Functions:
 ```c
@@ -219,7 +218,6 @@ size_t cson_str_memsize(CsonStr str);
 ```
 
 ### Writing
-To enable the writing functionality, define `CSON_WRITE`, as shown above.
 
 Functions:
 ```c
@@ -233,7 +231,6 @@ bool cson_write(Cson *json, char *filename);
 ```
 
 ### Parsing
-To enable the parsing functionality, define `CSON_PARSE`, as shown above.
 
 Functions:
 ```c
