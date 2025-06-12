@@ -70,7 +70,7 @@ By default, `cson.h` uses the `cson_default_arena` to allocate its memory. To ch
 ```c 
 struct Cson{
     union{
-        int integer;
+        int64_t integer;
         double floating;
         bool boolean;
         CsonStr string;
@@ -108,6 +108,7 @@ bool cson_get_int(int64_t *out, Cson *cson, (CsonArg) ...);
 bool cson_get_float(double *out, Cson *cson, (CsonArg) ...);
 bool cson_get_bool(bool *out, Cson *cson, (CsonArg) ...);
 bool cson_get_string(CsonStr *out, Cson *cson, (CsonArg) ...);
+bool cson_get_cstring(char **out, Cson *cson, (CsonArg) ...);
 bool cson_get_array(CsonArray **out, Cson *cson, (CsonArg) ...);
 bool cson_get_map(CsonMap **out, Cson *cson, (CsonArg) ...);
 

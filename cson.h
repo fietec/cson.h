@@ -231,6 +231,7 @@ extern CsonArena *cson_current_arena;
 #define cson_get_float(out, cson, ...) cson__get_float((out), cson_get(cson, ##__VA_ARGS__))
 #define cson_get_bool(out, cson, ...) cson__get_bool((out), cson_get(cson, ##__VA_ARGS__))
 #define cson_get_string(out, cson, ...) cson__get_string((out), cson_get(cson, ##__VA_ARGS__))
+#define cson_get_cstring(out, cson, ...) cson__get_cstring((out), cson_get(cson, ##__VA_ARGS__))
 #define cson_get_array(out, cson, ...) cson__get_array((out), cson_get(cson, ##__VA_ARGS__))
 #define cson_get_map(out, cson, ...) cson__get_map((out), cson_get(cson, ##__VA_ARGS__))
 
@@ -238,6 +239,7 @@ extern CsonArena *cson_current_arena;
 #define cson__to_float(cson) (cson)->value.floating
 #define cson__to_bool(cson) (cson)->value.boolean
 #define cson__to_string(cson) (cson)->value.string
+#define cson__to_cstring(cson) (cson)->value.string.value
 #define cson__to_array(cson) (cson)->value.array
 #define cson__to_map(cson) (cson)->value.map
 
@@ -258,6 +260,7 @@ LCSON bool cson__get_int(int64_t *out, Cson *cson);
 LCSON bool cson__get_float(double *out, Cson *cson);
 LCSON bool cson__get_bool(bool *out, Cson *cson);
 LCSON bool cson__get_string(CsonStr *out, Cson *cson);
+LCSON bool cson__get_cstring(char **out, Cson *cson);
 LCSON bool cson__get_array(CsonArray **out, Cson *cson);
 LCSON bool cson__get_map(CsonMap **out, Cson *cson);
  
@@ -571,6 +574,12 @@ bool cson__get_string(CsonStr *out, Cson *cson)
     if (cson == NULL || out == NULL || cson->type != Cson_String) return false;
     *out = cson->value.string;
     return true;
+}
+
+bool cson__get_cstring(char **out, Cson *cson)
+{
+    if (cson == NULL || out == NULL || cson->type != Cson_String) return false;
+    *out = cson->value.string.value;
 }
 
 bool cson__get_array(CsonArray **out, Cson *cson)
