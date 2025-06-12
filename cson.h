@@ -221,6 +221,7 @@ struct CsonRegion{
 };
 
 extern CsonArena *cson_current_arena;
+extern char cson_temp_buffer[512];
 
 #define key(kstr) ((CsonArg) {.value.key=cson_str(kstr), .type=CsonArg_Key})
 #define index(istr) ((CsonArg) {.value.index=(size_t)(istr), .type=CsonArg_Index})
@@ -305,6 +306,7 @@ LCSON size_t cson_str_memsize(CsonStr str);
 #define cson_print(cson) do{if (cson!=NULL){cson_fprint(cson, stdout, 0); putchar('\n');}else{printf("-null-\n");}} while (0)
 #define cson_array_print(array) do{if (array!=NULL){cson_array_fprint(array, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
 #define cson_map_print(map) do{if (map!=NULL){cson_map_fprint(map, stdout, 0); putchar('\n');}else{printf("-null-\n");}}while(0)
+LCSON void cson_escape_string(const char *string, char *buffer, size_t buffer_size);
 LCSON bool cson_write(Cson *json, char *filename);
 LCSON void cson_fprint(Cson *value, FILE *file, size_t indent);
 LCSON void cson_array_fprint(CsonArray *array, FILE *file, size_t indent);
@@ -410,6 +412,8 @@ LCSON bool cson__parse_value(Cson **cson, CsonLexer *lexer, CsonToken *token);
 
 static CsonArena cson_default_arena = {0};
 CsonArena *cson_current_arena = &cson_default_arena;
+
+char cson_temp_buffer[512] = {0};
 
 Cson* cson__get(Cson *cson, CsonArg args[], size_t count)
 {
@@ -973,6 +977,24 @@ size_t cson_str_memsize(CsonStr string)
 }
 
 
+void cson_escape_string(const char *string, char *buffer, size_t buffer_size)
+{
+    if (string == NULL || buffer == NULL || buffer_size == 0) return;
+    size_t ri = 0;
+    size_t wi = 0;
+    while (string[ri] != '\0' && wi < buffer_size - 1){
+        char c = string[ri++];
+        if (c == '\\') {
+            if (wi + 2 > buffer_size) break;
+            buffer[wi++] = '\\';
+            buffer[wi++] = '\\';
+        } else {
+            buffer[wi++] = c;
+        }
+    }
+    buffer[wi] = '\0';
+}
+
 #define cson_print_indent(file, indent) (fprintf((file), "%*s", (indent)*CSON_PRINT_INDENT, ""))
 
 void cson_fprint(Cson *value, FILE *file, size_t indent)
@@ -989,7 +1011,8 @@ void cson_fprint(Cson *value, FILE *file, size_t indent)
             fprintf(file, "%s", value->value.boolean? "true":"false");
         }break; 
         case Cson_String:{
-            fprintf(file, "\"%s\"", value->value.string.value);
+            cson_escape_string(value->value.string.value, cson_temp_buffer, sizeof(cson_temp_buffer));
+            fprintf(file, "\"%s\"", cson_temp_buffer);
         }break;
         case Cson_Null:{
             fprintf(file, "null");
