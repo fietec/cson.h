@@ -1446,16 +1446,36 @@ Cson* cson_parse_buffer(char *buffer, size_t buffer_size, char *filename)
     return cson;
 }
 
+size_t cson__read_file(FILE *file, char *buffer, size_t buffer_size) {
+    size_t total = 0;
+    int prev = 0;
+
+    while (total < buffer_size - 1) {
+        int c = fgetc(file);
+        if (c == EOF) break;
+
+        if (prev == '\r' && c == '\n') {
+            buffer[total - 1] = '\n'; // Replace \r with \n
+        } else {
+            buffer[total++] = (char)c;
+        }
+        prev = c;
+    }
+
+    buffer[total] = '\0';
+    return total;
+}
+
 Cson* cson_read(char *filename){
     FILE *file = fopen(filename, "r");
     if (file == NULL){
-        cson_error(CsonError_FileNotFound, "Could open file: \"%s\"", filename);
+        cson_error(CsonError_FileNotFound, "Could not open file: \"%s\"", filename);
         return NULL;
     }
     uint64_t file_size = cson_file_size(filename);
     char *file_content = (char*) calloc(file_size+1, sizeof(*file_content));
     cson_assert_alloc(file_content);
-    fread(file_content, 1, file_size, file);
+    (void) cson__read_file(file, file_content, file_size+1);
     fclose(file);
     Cson *cson = cson_parse_buffer(file_content, file_size, filename);
     free(file_content);
